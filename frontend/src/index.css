@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-background: #33312B;
+  --bg-surface: #33312B;
+  --clr-accent: #C09537;
+  --clr-muted: #888888;
+  --clr-pos: #22c55e;
+  --clr-neg: #ef4444;
+  --clr-pos-light: #86efac;
+  --clr-neg-light: #fca5a5;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: 'JetBrains Mono', monospace;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--clr-accent);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--clr-accent);
+  filter: brightness(1.2);
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white !important; color: black; font-size: 9pt; margin: 0; padding: 0; }
+  #root > div { visibility: hidden; height: 0; overflow: visible; }
+  #print-area { visibility: visible; height: auto; position: absolute; top: 0; left: 0; width: 100%; }
+  #print-area table { width: 100%; border-collapse: collapse; color: black; }
+  #print-area th, #print-area td { border: 1px solid #333; padding: 4px 6px; font-size: 8pt; }
+  #print-area th { background: #eee !important; color: black !important; font-weight: bold; }
+  #print-area input { border: none !important; background: transparent !important; padding: 0 !important; width: auto; color: black !important; }
+  #print-area button { display: none !important; }
+  #print-area .text-green-500 { color: #16a34a !important; }
+  #print-area .text-red-500 { color: #dc2626 !important; }
+  #print-area .text-pos { color: #16a34a !important; }
+  #print-area .text-neg { color: #dc2626 !important; }
+  #print-area .text-pos-light { color: #86efac !important; }
+  #print-area .text-neg-light { color: #fca5a5 !important; }
+  #print-area .text-muted { color: #555 !important; }
+  #print-area th:nth-child(4),
+  #print-area td:nth-child(4),
+  #print-area th:nth-child(5),
+  #print-area td:nth-child(5),
+  #print-area th:nth-child(6),
+  #print-area td:nth-child(6),
+  #print-area th:nth-child(7),
+  #print-area td:nth-child(7),
+  #print-area th:nth-child(8),
+  #print-area td:nth-child(8),
+  #print-area th:nth-child(9),
+  #print-area td:nth-child(9),
+  #print-area th:nth-child(10),
+  #print-area td:nth-child(10),
+  #print-area th:last-child,
+  #print-area td:last-child { display: none !important; }
+  @page { size: A4 portrait; margin: 15mm; }
+}
