@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, RotateCcw, Database, Plug, CheckCircle, Power } from 'lucide-react';
+import { X, RotateCcw, Database, Plug, CheckCircle, Power, Minus, Plus, Palette, Type, RefreshCw } from 'lucide-react';
 
 const DEFAULTS = {
   background: '#33312B',
@@ -23,12 +23,20 @@ const FIELDS = [
   { key: 'negLight', label: 'Negativ hell', desc: 'Zeitraum vor Kaufdatum (negativ)' },
 ];
 
-const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, fontScale = 100, onFontScaleChange }) => {
+const NAV = [
+  { id: 'db', label: 'Datenbank', icon: Database },
+  { id: 'colors', label: 'Farben', icon: Palette },
+  { id: 'font', label: 'Schrift', icon: Type },
+  { id: 'refresh', label: 'Aktualisierung', icon: RefreshCw },
+];
+
+const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, fontScale = 100, onFontScaleChange, refreshInterval = 60, onRefreshIntervalChange }) => {
   const [dbUri, setDbUri] = useState(dbConfig?.uri || '');
   const [dbTtl, setDbTtl] = useState(dbConfig?.ttl || 3600);
   const [dbEnabled, setDbEnabled] = useState(dbConfig?.enabled || false);
   const [dbOffline, setDbOffline] = useState(dbConfig?.offline || false);
   const [connecting, setConnecting] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => new Set(['colors', 'font', 'refresh']));
 
   const handleChange = (key, val) => {
     onChange({ ...colors, [key]: val });
@@ -51,9 +59,56 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
     }
   };
 
+  const toggleSection = (id) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const focusSection = (id) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    requestAnimationFrame(() => {
+      document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const Section = ({ id, title, icon: Icon, children }) => {
+    const isCollapsed = collapsed.has(id);
+    return (
+      <section id={`settings-${id}`} className="scroll-mt-16">
+        <div
+          className="flex items-center justify-between border border-accent p-3 cursor-pointer select-none"
+          onClick={() => toggleSection(id)}
+        >
+          <div className="flex items-center gap-2">
+            <Icon size={14} className="text-accent" />
+            <h3 className="text-xs-mono font-bold uppercase">{title}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); toggleSection(id); }}
+            aria-expanded={!isCollapsed}
+            aria-label={`${title} ${isCollapsed ? 'einblenden' : 'ausblenden'}`}
+            className="text-muted hover:text-white transition-colors"
+          >
+            {isCollapsed ? <Plus size={14} aria-hidden="true" /> : <Minus size={14} aria-hidden="true" />}
+          </button>
+        </div>
+        {!isCollapsed && <div className="mt-3">{children}</div>}
+      </section>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/70" onClick={onClose}>
-      <div className="bg-surface border border-accent w-full max-w-[400px] mx-4 p-6 relative" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface border border-accent w-full max-w-[400px] mx-4 p-6 relative max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-title-mono font-bold uppercase">Einstellungen</h2>
           <button onClick={onClose} className="text-muted hover:text-white transition-colors">
@@ -61,76 +116,22 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
           </button>
         </div>
 
-        {/* ── Farben ── */}
-        <div className="space-y-3 mb-6">
-          {FIELDS.map(f => (
-            <div key={f.key} className="flex items-center justify-between border border-accent p-3">
-              <div>
-                <div className="text-xs-mono uppercase">{f.label}</div>
-                <div className="text-[0.7rem] text-muted">{f.desc}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={colors[f.key] || DEFAULTS[f.key]}
-                  onChange={(e) => handleChange(f.key, e.target.value)}
-                  className="w-20 bg-background border border-accent text-xs-mono p-1 focus:outline-none focus:border-muted transition-colors uppercase font-mono"
-                  placeholder="#000000"
-                  maxLength={7}
-                />
-                <input
-                  type="color"
-                  value={colors[f.key] || DEFAULTS[f.key]}
-                  onChange={(e) => handleChange(f.key, e.target.value)}
-                  className="w-10 h-8 p-0 border-0 cursor-pointer bg-transparent"
-                />
-              </div>
-            </div>
+        {/* ── Leiste ── */}
+        <div className="sticky top-0 z-10 bg-surface flex border border-accent mb-4">
+          {NAV.map(n => (
+            <button
+              key={n.id}
+              onClick={() => focusSection(n.id)}
+              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-[0.7rem] uppercase text-muted hover:text-white transition-colors border-r border-accent last:border-r-0"
+              title={n.label}
+            >
+              <n.icon size={12} /> {n.label}
+            </button>
           ))}
         </div>
 
-        <button
-          onClick={() => onChange({ ...DEFAULTS })}
-          className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors mb-6"
-        >
-          <RotateCcw size={14} /> Standard
-        </button>
-
-        {/* ── Schriftgröße ── */}
-        <div className="border-t border-accent pt-4 mb-6">
-          <div className="border border-accent p-3 flex items-center justify-between">
-            <div>
-              <div className="text-xs-mono uppercase">Schriftgröße</div>
-              <div className="text-[0.7rem] text-muted">Aktuell {fontScale}%</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => onFontScaleChange?.(Math.max(80, fontScale - 5))}
-                className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
-                title="Schrift kleiner"
-              >
-                -
-              </button>
-              <button
-                onClick={() => onFontScaleChange?.(100)}
-                className="h-8 border border-accent px-2 text-[0.7rem] text-muted hover:text-white transition-colors"
-                title="Schriftgröße zurücksetzen"
-              >
-                100%
-              </button>
-              <button
-                onClick={() => onFontScaleChange?.(Math.min(140, fontScale + 5))}
-                className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
-                title="Schrift größer"
-              >
-                +
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Datenbank ── */}
-        <div className="border-t border-accent pt-4">
+        {/* ── Datenbank (oben) ── */}
+        <section id="settings-db" className="scroll-mt-16 mb-4">
           <div className="flex items-center gap-2 mb-3">
             <Database size={14} className="text-accent" />
             <h3 className="text-xs-mono font-bold uppercase">Datenbank (optional)</h3>
@@ -212,6 +213,111 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
               )}
             </div>
           </div>
+        </section>
+
+        {/* ── Farben ── */}
+        <div className="border-t border-accent pt-4 mb-4">
+          <Section id="colors" title="Farben" icon={Palette}>
+            <div className="space-y-3">
+              {FIELDS.map(f => (
+                <div key={f.key} className="flex items-center justify-between border border-accent p-3">
+                  <div>
+                    <div className="text-xs-mono uppercase">{f.label}</div>
+                    <div className="text-[0.7rem] text-muted">{f.desc}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={colors[f.key] || DEFAULTS[f.key]}
+                      onChange={(e) => handleChange(f.key, e.target.value)}
+                      className="w-20 bg-background border border-accent text-xs-mono p-1 focus:outline-none focus:border-muted transition-colors uppercase font-mono"
+                      placeholder="#000000"
+                      maxLength={7}
+                    />
+                    <input
+                      type="color"
+                      value={colors[f.key] || DEFAULTS[f.key]}
+                      onChange={(e) => handleChange(f.key, e.target.value)}
+                      className="w-10 h-8 p-0 border-0 cursor-pointer bg-transparent"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => onChange({ ...DEFAULTS })}
+              className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors mt-3"
+            >
+              <RotateCcw size={14} /> Standard
+            </button>
+          </Section>
+        </div>
+
+        {/* ── Schriftgröße ── */}
+        <div className="border-t border-accent pt-4 mb-4">
+          <Section id="font" title="Schriftgröße" icon={Type}>
+            <div className="border border-accent p-3 flex items-center justify-between">
+              <div>
+                <div className="text-xs-mono uppercase">Schriftgröße</div>
+                <div className="text-[0.7rem] text-muted">Aktuell {fontScale}%</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onFontScaleChange?.(Math.max(80, fontScale - 5))}
+                  className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
+                  title="Schrift kleiner"
+                >
+                  -
+                </button>
+                <button
+                  onClick={() => onFontScaleChange?.(100)}
+                  className="h-8 border border-accent px-2 text-[0.7rem] text-muted hover:text-white transition-colors"
+                  title="Schriftgröße zurücksetzen"
+                >
+                  100%
+                </button>
+                <button
+                  onClick={() => onFontScaleChange?.(Math.min(140, fontScale + 5))}
+                  className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
+                  title="Schrift größer"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </Section>
+        </div>
+
+        {/* ── Aktualisierung ── */}
+        <div className="border-t border-accent pt-4">
+          <Section id="refresh" title="Aktualisierung" icon={RefreshCw}>
+            <div className="border border-accent p-3">
+              <div className="text-xs-mono uppercase mb-1">Auto-Aktualisierung</div>
+              <div className="text-[0.7rem] text-muted mb-2">Kurse & Performance werden alle {refreshInterval}s neu geladen (Offline-Modus pausiert)</div>
+              <input
+                type="number"
+                min={15}
+                max={3600}
+                step={5}
+                value={refreshInterval}
+                onChange={(e) => onRefreshIntervalChange?.(parseInt(e.target.value, 10) || 60)}
+                className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
+              />
+              <div className="flex gap-2 mt-2">
+                {[15, 60, 300, 900].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => onRefreshIntervalChange?.(v)}
+                    className={`h-7 px-2 text-[0.7rem] border border-accent transition-colors ${refreshInterval === v ? 'text-white' : 'text-muted hover:text-white'}`}
+                    title={`Alle ${v / 60}m`}
+                  >
+                    {v < 60 ? `${v}s` : `${v / 60}m`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Section>
         </div>
       </div>
     </div>

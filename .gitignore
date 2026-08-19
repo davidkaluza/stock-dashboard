@@ -1,0 +1,32 @@
+# Node (Installation erst bei Erstinstallation, danach belassen)
+node_modules/
+frontend/node_modules/
+package-lock.json
+
+# Vite-Cache
+.vite/
+node_modules/.vite/
+
+# Build-Output (wird via `npm run build` regeneriert)
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Lokale Konfiguration (enthält lokale IPs/URI, maschinenabhängig)
+backend/db_config.json
+backend/db_config.json.local
+
+# Alt-Varianten / Leichen
+*.old
+*.old.py
+
+# OpenCode/Tool-Artefakte
+es_*
+
+# OS
+.DS_Store
+Thumbs.db

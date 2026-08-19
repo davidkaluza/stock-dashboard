@@ -9,6 +9,8 @@ cd backend && python main.py         # Port 8001 (API + built frontend aus dist/
 cd frontend && npm run dev           # Port 5173 (API → localhost:8001)
 cd frontend && npm run build         # dist/ für Single-Server-Produktion
 start-local-dev.bat                  # Backend + Frontend parallel (Windows)
+./start-debian.sh                    # Debian/Linux: prüft Debian-Pakete (python3, python3-venv, node>=18, npm), startet Backend in .venv + Frontend
+./deploy/install-systemd.sh          # Debian/Linux: systemd-Services (Hintergrund), Frontend via `serve` (devDependency in package.json), Pfade via __APP_DIR__-Template
 ```
 
 **Single-Server**: `npm run build` → `python main.py` servt das gebaute Frontend statisch + API auf 8001. Dev-Server proxyt nichts. Statische Dateien werden aus `backend/frontend/dist/` ODER `../frontend/dist/` gemountet (erste gefundene, `main.py:773-780`).
@@ -22,7 +24,7 @@ start-local-dev.bat                  # Backend + Frontend parallel (Windows)
 | Suche | `main.py:674-768` | `/search?q=...&limit=10` — Mehrstufig: WKN_MAP → `yf.Search` → `yf.query` → Direkt-Ticker-Fallback. Dedupe per (symbol, exchange) |
 | Move/Copy | `App.jsx:419-444` | `handleMoveStock`/`handleCopyStock`; Button (`ArrowLeftRight`) in `StockCard.jsx` + `TableView.jsx`, Dialog in App |
 | `.old`-Leichen | `frontend/src/components/*.jsx.old` | Alte Varianten, ungenutzt. Auch `NewsPanel.jsx` tot (nicht importiert). `backend/main.old.py` nur noch im Git-Index, nicht auf Disk |
-| Kein `.gitignore` | Repo-Root | `node_modules/`, `__pycache__/`, `dist/`, `*.pyc` alle in git (9735 Dateien) |
+| `.gitignore` | Repo-Root | Ignoriert `node_modules/`, `dist/`, `package-lock.json`, `*.pyc`, `db_config.json` (local), `*.old`, `es_*`. Junk aber noch im Git-Index getrackt (9705 Dateien) — erst `git rm --cached` untracked |
 | Kein `vite.config.js` | — | Nur Vite-Standard (plugin-react, tailwind via postcss). Kein Proxy, keine Aliase |
 | Kein Lint/Test/Typecheck | — | Nur `dev`, `build`, `preview`. Kein Test-Framework, keine CI |
 | db_config.json | `backend/db_config.json` | MongoDB-Einstellungen aus den UI-Settings, in git getrackt. Env-Vars (MONGO_URI/MONGO_ENABLED/CACHE_TTL/OFFLINE_MODE) gewinnen über der Datei |
@@ -64,8 +66,9 @@ dann ggf. von yfinance aktualisiert.
 - `activeTab` — Depot-ID
 - `stockData`, `statsData`, `historyData` — gecachte API-Responses
 - `viewMode` (`"cards"` | `"table"`), `colorSettings` (inkl. `pos`/`neg`/`posLight`/`negLight` als `--clr-pos` etc.)
+- `refreshInterval` — Auto-Refresh in Sekunden (Default 60, Range 15–3600, über Einstellungen setzbar)
 
-Auto-Refresh alle 60s (alle Watchlist-Symbole). API-Base: `import.meta.env.DEV ? 'http://localhost:8001' : ''`.
+Auto-Refresh im eingestellten Intervall (nur Preise + Performance, History nur beim Laden). Offline-Modus pausiert das Intervall. API-Base: `import.meta.env.DEV ? 'http://localhost:8001' : ''`.
 
 Kartenansicht sortierbar (Name/Kurs/Wert/Rendite/Tage). Tabellenansicht mit A4-Druck via `@media print`. Performance-Werte in Tabellenansicht hell markiert (`text-pos-light`/`text-neg-light`), wenn der Zeitraum vor dem Kaufdatum beginnt.
 

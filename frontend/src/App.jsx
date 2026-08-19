@@ -11,6 +11,14 @@ const APP_VERSION = '0.1.0';
 
 const API_BASE = import.meta.env.DEV ? 'http://localhost:8001' : '';
 
+const safeSetItem = (key, value) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    console.warn(`localStorage (${key}) nicht verfügbar:`, e);
+  }
+};
+
 const formatCacheAge = (ts) => {
   if (!ts) return null;
   const diffSec = (Date.now() / 1000) - ts;
@@ -74,6 +82,10 @@ const App = () => {
   const [fontScale, setFontScale] = useState(() => {
     const saved = parseInt(localStorage.getItem('fontScale') || '100', 10);
     return Number.isFinite(saved) ? Math.min(140, Math.max(80, saved)) : 100;
+  });
+  const [refreshInterval, setRefreshInterval] = useState(() => {
+    const saved = parseInt(localStorage.getItem('refreshInterval') || '60', 10);
+    return Number.isFinite(saved) ? Math.min(3600, Math.max(15, saved)) : 60;
   });
   const [cardSortKey, setCardSortKey] = useState('name');
   const [cardSortDir, setCardSortDir] = useState('asc');
@@ -164,20 +176,21 @@ const App = () => {
   useEffect(() => {
     const clamped = Math.min(140, Math.max(80, fontScale));
     document.documentElement.style.fontSize = `${16 * clamped / 100}px`;
-    localStorage.setItem('fontScale', String(clamped));
+    safeSetItem('fontScale', String(clamped));
   }, [fontScale]);
 
   useEffect(() => {
-    localStorage.setItem('accounts', JSON.stringify(accounts));
-    localStorage.setItem('activeTab', activeTab);
-    localStorage.setItem('viewMode', viewMode);
-    localStorage.setItem('colorSettings', JSON.stringify(colorSettings));
-    localStorage.setItem('cachePanelOpen', String(cachePanelOpen));
-  }, [accounts, activeTab, viewMode, purchaseDates, colorSettings, cachePanelOpen]);
+    safeSetItem('accounts', JSON.stringify(accounts));
+    safeSetItem('activeTab', activeTab);
+    safeSetItem('viewMode', viewMode);
+    safeSetItem('colorSettings', JSON.stringify(colorSettings));
+    safeSetItem('cachePanelOpen', String(cachePanelOpen));
+    safeSetItem('refreshInterval', String(refreshInterval));
+  }, [accounts, activeTab, viewMode, purchaseDates, colorSettings, cachePanelOpen, refreshInterval]);
 
-  useEffect(() => { localStorage.setItem('stockData', JSON.stringify(stockData)); }, [stockData]);
-  useEffect(() => { localStorage.setItem('statsData', JSON.stringify(statsData)); }, [statsData]);
-  useEffect(() => { localStorage.setItem('historyData', JSON.stringify(historyData)); }, [historyData]);
+  useEffect(() => { safeSetItem('stockData', JSON.stringify(stockData)); }, [stockData]);
+  useEffect(() => { safeSetItem('statsData', JSON.stringify(statsData)); }, [statsData]);
+  useEffect(() => { safeSetItem('historyData', JSON.stringify(historyData)); }, [historyData]);
 
   useEffect(() => {
     const fetchDbConfig = async () => {
@@ -304,21 +317,6 @@ const App = () => {
   useEffect(() => {
     if (allWatchlistSymbols.length === 0) return;
 
-    const fetchPriceStats = async () => {
-      for (const symbol of allWatchlistSymbols) {
-        try {
-          const [priceRes, statsRes] = await Promise.all([
-            axios.get(`${API_BASE}/price/${symbol}`),
-            axios.get(`${API_BASE}/stats/${symbol}`),
-          ]);
-          setStockData(prev => ({ ...prev, [symbol]: priceRes.data }));
-          setStatsData(prev => ({ ...prev, [symbol]: statsRes.data }));
-        } catch (e) {
-          console.error(`Error fetching ${symbol}:`, e);
-        }
-      }
-    };
-
     const fetchAll = async () => {
       for (const symbol of allWatchlistSymbols) {
         try {
@@ -340,10 +338,29 @@ const App = () => {
     };
 
     fetchAll();
-    if (dbConfig.offline) return undefined;
-    const interval = setInterval(fetchPriceStats, 60000);
-    return () => clearInterval(interval);
   }, [allWatchlistSymbols, dbConfig.offline]);
+
+  useEffect(() => {
+    if (allWatchlistSymbols.length === 0 || dbConfig.offline) return undefined;
+
+    const fetchPriceStats = async () => {
+      for (const symbol of allWatchlistSymbols) {
+        try {
+          const [priceRes, statsRes] = await Promise.all([
+            axios.get(`${API_BASE}/price/${symbol}`),
+            axios.get(`${API_BASE}/stats/${symbol}`),
+          ]);
+          setStockData(prev => ({ ...prev, [symbol]: priceRes.data }));
+          setStatsData(prev => ({ ...prev, [symbol]: statsRes.data }));
+        } catch (e) {
+          console.error(`Error fetching ${symbol}:`, e);
+        }
+      }
+    };
+
+    const interval = setInterval(fetchPriceStats, refreshInterval * 1000);
+    return () => clearInterval(interval);
+  }, [allWatchlistSymbols, dbConfig.offline, refreshInterval]);
 
   const addStock = async (symbol) => {
     setLoading(true);
@@ -539,60 +556,65 @@ const App = () => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target.result;
-      const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-      if (lines.length < 2) return;
-      const header = lines[0].toUpperCase();
-      const hasDepot = header.startsWith('DEPOT');
-      const dataLines = header.includes('TICKER') ? lines.slice(1) : lines;
+      try {
+        const text = String(evt.target.result || '').replace(/^\uFEFF/, '');
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+        if (lines.length < 2) return;
+        const header = lines[0].toUpperCase();
+        const hasDepot = header.startsWith('DEPOT');
+        const dataLines = header.includes('TICKER') ? lines.slice(1) : lines;
 
-      const depotEntries = {};
-      for (const line of dataLines) {
-        const delim = line.includes(';') ? ';' : ',';
-        const parts = line.split(delim);
-        const off = hasDepot ? 1 : 0;
-        if (parts.length >= 4 + off) {
-          const depotName = hasDepot ? parts[0].trim() : (accounts.find(a => a.id === activeAccountId)?.name || 'Depot 1');
-          const ticker = parts[off].trim().toUpperCase();
-          const qty = parseInt(parts[2 + off].trim()) || 0;
-          const price = parseFloat(parts[3 + off].trim().replace(',', '.')) || 0;
-          const date = parts[4 + off] ? parts[4 + off].trim() : '';
-          if (!ticker) continue;
-          if (!depotEntries[depotName]) depotEntries[depotName] = { watchlist: [], purchasePrices: {}, shareQuantities: {}, purchaseDates: {} };
-          if (!depotEntries[depotName].watchlist.includes(ticker)) depotEntries[depotName].watchlist.push(ticker);
-          if (qty > 0) depotEntries[depotName].shareQuantities[ticker] = qty;
-          if (price > 0) depotEntries[depotName].purchasePrices[ticker] = price;
-          if (date) depotEntries[depotName].purchaseDates[ticker] = date;
-        }
-      }
-
-      setAccounts(prev => {
-        const updated = [...prev];
-        for (const [depotName, entries] of Object.entries(depotEntries)) {
-          const existing = updated.find(a => a.name === depotName);
-          if (existing) {
-            const idx = updated.indexOf(existing);
-            updated[idx] = {
-              ...existing,
-              watchlist: [...new Set([...existing.watchlist, ...entries.watchlist])],
-              purchasePrices: { ...existing.purchasePrices, ...entries.purchasePrices },
-              shareQuantities: { ...existing.shareQuantities, ...entries.shareQuantities },
-              purchaseDates: { ...existing.purchaseDates, ...entries.purchaseDates },
-            };
-          } else {
-            updated.push({
-              id: 'acc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-              name: depotName,
-              watchlist: entries.watchlist,
-              purchasePrices: entries.purchasePrices,
-              shareQuantities: entries.shareQuantities,
-              purchaseDates: entries.purchaseDates,
-              oldShares: [],
-            });
+        const depotEntries = {};
+        for (const line of dataLines) {
+          const delim = line.includes(';') ? ';' : ',';
+          const parts = line.split(delim);
+          const off = hasDepot ? 1 : 0;
+          if (parts.length >= 4 + off) {
+            const depotName = hasDepot ? parts[0].trim() : (accounts.find(a => a.id === activeAccountId)?.name || 'Depot 1');
+            const ticker = parts[off].trim().toUpperCase();
+            const qty = parseInt(parts[2 + off].trim()) || 0;
+            const price = parseFloat(parts[3 + off].trim().replace(',', '.')) || 0;
+            const date = parts[4 + off] ? parts[4 + off].trim() : '';
+            if (!ticker) continue;
+            if (!depotEntries[depotName]) depotEntries[depotName] = { watchlist: [], purchasePrices: {}, shareQuantities: {}, purchaseDates: {} };
+            if (!depotEntries[depotName].watchlist.includes(ticker)) depotEntries[depotName].watchlist.push(ticker);
+            if (qty > 0) depotEntries[depotName].shareQuantities[ticker] = qty;
+            if (price > 0) depotEntries[depotName].purchasePrices[ticker] = price;
+            if (date) depotEntries[depotName].purchaseDates[ticker] = date;
           }
         }
-        return updated;
-      });
+
+        setAccounts(prev => {
+          const updated = [...prev];
+          for (const [depotName, entries] of Object.entries(depotEntries)) {
+            const existing = updated.find(a => a.name === depotName);
+            if (existing) {
+              const idx = updated.indexOf(existing);
+              updated[idx] = {
+                ...existing,
+                watchlist: [...new Set([...existing.watchlist, ...entries.watchlist])],
+                purchasePrices: { ...existing.purchasePrices, ...entries.purchasePrices },
+                shareQuantities: { ...existing.shareQuantities, ...entries.shareQuantities },
+                purchaseDates: { ...existing.purchaseDates, ...entries.purchaseDates },
+              };
+            } else {
+              updated.push({
+                id: 'acc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                name: depotName,
+                watchlist: entries.watchlist,
+                purchasePrices: entries.purchasePrices,
+                shareQuantities: entries.shareQuantities,
+                purchaseDates: entries.purchaseDates,
+                oldShares: [],
+              });
+            }
+          }
+          return updated;
+        });
+      } catch (err) {
+        console.error('CSV-Import fehlgeschlagen:', err);
+        setError('CSV-Import fehlgeschlagen: Datei konnte nicht gelesen werden.');
+      }
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -944,6 +966,8 @@ const App = () => {
           API_BASE={API_BASE}
           fontScale={fontScale}
           onFontScaleChange={setFontScale}
+          refreshInterval={refreshInterval}
+          onRefreshIntervalChange={setRefreshInterval}
         />
       )}
 

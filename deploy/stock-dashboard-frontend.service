@@ -1,0 +1,16 @@
+[Unit]
+Description=Stock Dashboard - Frontend (serve, statisches dist/)
+After=network-online.target stock-dashboard-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__/frontend
+ExecStart=__APP_DIR__/frontend/node_modules/.bin/serve -s dist -l 5173
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
