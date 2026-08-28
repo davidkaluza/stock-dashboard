@@ -3,21 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --bg-background: #33312B;
-  --bg-surface: #33312B;
-  --clr-accent: #C09537;
+  --bg-background: #14171c;
+  --bg-surface: #1b1f26;
+  --clr-accent: #2a2f36;
   --clr-muted: #888888;
-  --clr-pos: #22c55e;
-  --clr-neg: #ef4444;
-  --clr-pos-light: #86efac;
-  --clr-neg-light: #fca5a5;
+  --clr-pos: #6fae8f;
+  --clr-neg: #b1515f;
+  --clr-pos-light: #8b93a1;
+  --clr-neg-light: #8b93a1;
+  --font-family: 'JetBrains Mono', monospace;
 }
 
 body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-family, 'JetBrains Mono', monospace);
   overflow-x: hidden;
 }
 

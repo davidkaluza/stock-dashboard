@@ -21,6 +21,9 @@ export default {
         'sm-mono': '0.9rem',
         'title-mono': '1.125rem',
         'table-mono': '0.95rem',
+      },
+      fontFamily: {
+        mono: ['var(--font-family)', 'monospace'],
       }
     },
   },

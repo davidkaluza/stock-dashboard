@@ -83,6 +83,9 @@ const App = () => {
     const saved = parseInt(localStorage.getItem('fontScale') || '100', 10);
     return Number.isFinite(saved) ? Math.min(140, Math.max(80, saved)) : 100;
   });
+  const [fontFamily, setFontFamily] = useState(() => {
+    return localStorage.getItem('fontFamily') || "'JetBrains Mono', monospace";
+  });
   const [refreshInterval, setRefreshInterval] = useState(() => {
     const saved = parseInt(localStorage.getItem('refreshInterval') || '60', 10);
     return Number.isFinite(saved) ? Math.min(3600, Math.max(15, saved)) : 60;
@@ -178,6 +181,11 @@ const App = () => {
     document.documentElement.style.fontSize = `${16 * clamped / 100}px`;
     safeSetItem('fontScale', String(clamped));
   }, [fontScale]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--font-family', fontFamily);
+    safeSetItem('fontFamily', fontFamily);
+  }, [fontFamily]);
 
   useEffect(() => {
     safeSetItem('accounts', JSON.stringify(accounts));
@@ -639,7 +647,7 @@ const App = () => {
     <div className="w-full px-4 py-4 md:px-6 md:py-6">
       <header className="mb-4 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-end">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tighter uppercase">Stock_Dashboard_{APP_VERSION.replace(/\./g, '_')}</h1>
+          <h1 className="text-2xl font-bold tracking-tighter uppercase">Stock Dashboard (dk) {APP_VERSION}</h1>
         </div>
         <div className="text-right">
           <div className="text-xs-mono text-muted mb-1">
@@ -966,6 +974,8 @@ const App = () => {
           API_BASE={API_BASE}
           fontScale={fontScale}
           onFontScaleChange={setFontScale}
+          fontFamily={fontFamily}
+          onFontFamilyChange={setFontFamily}
           refreshInterval={refreshInterval}
           onRefreshIntervalChange={setRefreshInterval}
         />

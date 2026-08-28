@@ -30,13 +30,31 @@ const NAV = [
   { id: 'refresh', label: 'Aktualisierung', icon: RefreshCw },
 ];
 
-const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, fontScale = 100, onFontScaleChange, refreshInterval = 60, onRefreshIntervalChange }) => {
+const FONTS = [
+  { label: 'JetBrains Mono', value: "'JetBrains Mono', monospace" },
+  { label: 'IBM Plex Mono', value: "'IBM Plex Mono', monospace" },
+  { label: 'Space Mono', value: "'Space Mono', monospace" },
+  { label: 'Inter', value: "'Inter', sans-serif" },
+  { label: 'Roboto', value: "'Roboto', sans-serif" },
+  { label: 'Lato', value: "'Lato', sans-serif" },
+  { label: 'Space Grotesk', value: "'Space Grotesk', sans-serif" },
+  { label: 'Georgia (Serif)', value: "Georgia, serif" },
+];
+
+const FONT_SIZES = [12, 14, 16, 18, 20, 22];
+
+const PX_TO_SCALE = (px) => Math.max(80, Math.min(140, Math.round((px * 100) / 16)));
+const SCALE_TO_PX = (scale) => Math.round((scale * 16) / 100);
+
+const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, fontScale = 100, onFontScaleChange, fontFamily = "'JetBrains Mono', monospace", onFontFamilyChange, refreshInterval = 60, onRefreshIntervalChange }) => {
   const [dbUri, setDbUri] = useState(dbConfig?.uri || '');
   const [dbTtl, setDbTtl] = useState(dbConfig?.ttl || 3600);
   const [dbEnabled, setDbEnabled] = useState(dbConfig?.enabled || false);
   const [dbOffline, setDbOffline] = useState(dbConfig?.offline || false);
   const [connecting, setConnecting] = useState(false);
   const [collapsed, setCollapsed] = useState(() => new Set(['colors', 'font', 'refresh']));
+
+  const fontSizePx = SCALE_TO_PX(fontScale);
 
   const handleChange = (key, val) => {
     onChange({ ...colors, [key]: val });
@@ -82,7 +100,7 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
   const Section = ({ id, title, icon: Icon, children }) => {
     const isCollapsed = collapsed.has(id);
     return (
-      <section id={`settings-${id}`} className="scroll-mt-16">
+      <section id={`settings-${id}`} className="scroll-mt-20">
         <div
           className="flex items-center justify-between border border-accent p-3 cursor-pointer select-none"
           onClick={() => toggleSection(id)}
@@ -108,216 +126,244 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/70" onClick={onClose}>
-      <div className="bg-surface border border-accent w-full max-w-[400px] mx-4 p-6 relative max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-title-mono font-bold uppercase">Einstellungen</h2>
-          <button onClick={onClose} className="text-muted hover:text-white transition-colors">
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* ── Leiste ── */}
-        <div className="sticky top-0 z-10 bg-surface flex border border-accent mb-4">
-          {NAV.map(n => (
-            <button
-              key={n.id}
-              onClick={() => focusSection(n.id)}
-              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-[0.7rem] uppercase text-muted hover:text-white transition-colors border-r border-accent last:border-r-0"
-              title={n.label}
-            >
-              <n.icon size={12} /> {n.label}
+      <div className="bg-surface border border-accent w-full max-w-[480px] mx-4 relative max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {/* ── Fixierter Kopf: Titel + Leiste ── */}
+        <div className="sticky top-0 z-20 bg-surface border-b border-accent px-6 pt-6 pb-3">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-title-mono font-bold uppercase">Einstellungen</h2>
+            <button onClick={onClose} className="text-muted hover:text-white transition-colors">
+              <X size={18} />
             </button>
-          ))}
+          </div>
+
+          <div className="flex border border-accent">
+            {NAV.map(n => (
+              <button
+                key={n.id}
+                onClick={() => focusSection(n.id)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-[0.7rem] uppercase text-muted hover:text-white transition-colors border-r border-accent last:border-r-0"
+                title={n.label}
+              >
+                <n.icon size={12} /> {n.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* ── Datenbank (oben) ── */}
-        <section id="settings-db" className="scroll-mt-16 mb-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Database size={14} className="text-accent" />
-            <h3 className="text-xs-mono font-bold uppercase">Datenbank (optional)</h3>
-          </div>
-
-          <div className="space-y-3">
-            {/* Toggle Ein/Aus */}
-            <div className="border border-accent p-3 flex items-center justify-between">
-              <div>
-                <div className="text-xs-mono uppercase">Cache</div>
-                <div className="text-[0.7rem] text-muted">Datenbank-Caching ein-/ausschalten</div>
-              </div>
-              <button
-                onClick={() => setDbEnabled(!dbEnabled)}
-                className={`w-10 h-5 rounded-full transition-colors relative ${dbEnabled ? 'bg-accent' : 'bg-muted'}`}
-              >
-                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${dbEnabled ? 'left-5' : 'left-0.5'}`} />
-              </button>
-            </div>
-
-            <div className="border border-accent p-3 flex items-center justify-between">
-              <div>
-                <div className="text-xs-mono uppercase">Offline-Modus</div>
-                <div className="text-[0.7rem] text-muted">Nur MongoDB lesen, keine yfinance-Zugriffe</div>
-              </div>
-              <button
-                onClick={() => setDbOffline(!dbOffline)}
-                className={`w-10 h-5 rounded-full transition-colors relative ${dbOffline ? 'bg-accent' : 'bg-muted'}`}
-              >
-                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${dbOffline ? 'left-5' : 'left-0.5'}`} />
-              </button>
-            </div>
-
-            <div className="border border-accent p-3">
-              <div className="text-xs-mono uppercase mb-1">MongoDB URI</div>
-              <div className="text-[0.7rem] text-muted mb-2">z. B. mongodb://10.0.0.176:27017/stock_dashboard_2</div>
-              <input
-                type="text"
-                value={dbUri}
-                onChange={(e) => setDbUri(e.target.value)}
-                className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
-                placeholder="mongodb://host:27017/dbname"
-              />
-            </div>
-
-            <div className="border border-accent p-3">
-              <div className="text-xs-mono uppercase mb-1">Cache-TTL (Sekunden)</div>
-              <input
-                type="number"
-                min={60}
-                max={86400}
-                value={dbTtl}
-                onChange={(e) => setDbTtl(parseInt(e.target.value) || 3600)}
-                className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
-              />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleDbConnect}
-                disabled={connecting || !dbUri}
-                className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors disabled:opacity-40"
-              >
-                {connecting ? 'Verbinde...' : <><Plug size={14} /> Verbinden</>}
-              </button>
-
-              {dbConfig?.connected && dbConfig?.enabled && (
-                <span className="flex items-center gap-1 text-xs-mono text-pos">
-                  <CheckCircle size={12} /> {dbConfig?.offline ? 'Offline' : 'Aktiv'}
-                </span>
-              )}
-              {dbConfig?.connected && !dbConfig?.enabled && (
-                <span className="flex items-center gap-1 text-xs-mono text-muted">
-                  <Power size={12} /> Aus
-                </span>
-              )}
-              {dbConfig?.connected === false && dbUri && (
-                <span className="text-xs-mono text-neg">Fehler</span>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* ── Farben ── */}
-        <div className="border-t border-accent pt-4 mb-4">
-          <Section id="colors" title="Farben" icon={Palette}>
-            <div className="space-y-3">
-              {FIELDS.map(f => (
-                <div key={f.key} className="flex items-center justify-between border border-accent p-3">
+        <div className="p-6">
+          {/* ── Datenbank ── */}
+          <div className="mb-4">
+            <Section id="db" title="Datenbank (optional)" icon={Database}>
+              <div className="space-y-3">
+                {/* Toggle Ein/Aus */}
+                <div className="border border-accent p-3 flex items-center justify-between">
                   <div>
-                    <div className="text-xs-mono uppercase">{f.label}</div>
-                    <div className="text-[0.7rem] text-muted">{f.desc}</div>
+                    <div className="text-xs-mono uppercase">Cache</div>
+                    <div className="text-[0.7rem] text-muted">Datenbank-Caching ein-/ausschalten</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={colors[f.key] || DEFAULTS[f.key]}
-                      onChange={(e) => handleChange(f.key, e.target.value)}
-                      className="w-20 bg-background border border-accent text-xs-mono p-1 focus:outline-none focus:border-muted transition-colors uppercase font-mono"
-                      placeholder="#000000"
-                      maxLength={7}
-                    />
-                    <input
-                      type="color"
-                      value={colors[f.key] || DEFAULTS[f.key]}
-                      onChange={(e) => handleChange(f.key, e.target.value)}
-                      className="w-10 h-8 p-0 border-0 cursor-pointer bg-transparent"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={() => onChange({ ...DEFAULTS })}
-              className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors mt-3"
-            >
-              <RotateCcw size={14} /> Standard
-            </button>
-          </Section>
-        </div>
-
-        {/* ── Schriftgröße ── */}
-        <div className="border-t border-accent pt-4 mb-4">
-          <Section id="font" title="Schriftgröße" icon={Type}>
-            <div className="border border-accent p-3 flex items-center justify-between">
-              <div>
-                <div className="text-xs-mono uppercase">Schriftgröße</div>
-                <div className="text-[0.7rem] text-muted">Aktuell {fontScale}%</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => onFontScaleChange?.(Math.max(80, fontScale - 5))}
-                  className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
-                  title="Schrift kleiner"
-                >
-                  -
-                </button>
-                <button
-                  onClick={() => onFontScaleChange?.(100)}
-                  className="h-8 border border-accent px-2 text-[0.7rem] text-muted hover:text-white transition-colors"
-                  title="Schriftgröße zurücksetzen"
-                >
-                  100%
-                </button>
-                <button
-                  onClick={() => onFontScaleChange?.(Math.min(140, fontScale + 5))}
-                  className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
-                  title="Schrift größer"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-          </Section>
-        </div>
-
-        {/* ── Aktualisierung ── */}
-        <div className="border-t border-accent pt-4">
-          <Section id="refresh" title="Aktualisierung" icon={RefreshCw}>
-            <div className="border border-accent p-3">
-              <div className="text-xs-mono uppercase mb-1">Auto-Aktualisierung</div>
-              <div className="text-[0.7rem] text-muted mb-2">Kurse & Performance werden alle {refreshInterval}s neu geladen (Offline-Modus pausiert)</div>
-              <input
-                type="number"
-                min={15}
-                max={3600}
-                step={5}
-                value={refreshInterval}
-                onChange={(e) => onRefreshIntervalChange?.(parseInt(e.target.value, 10) || 60)}
-                className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
-              />
-              <div className="flex gap-2 mt-2">
-                {[15, 60, 300, 900].map(v => (
                   <button
-                    key={v}
-                    onClick={() => onRefreshIntervalChange?.(v)}
-                    className={`h-7 px-2 text-[0.7rem] border border-accent transition-colors ${refreshInterval === v ? 'text-white' : 'text-muted hover:text-white'}`}
-                    title={`Alle ${v / 60}m`}
+                    onClick={() => setDbEnabled(!dbEnabled)}
+                    className={`w-10 h-5 rounded-full transition-colors relative ${dbEnabled ? 'bg-accent' : 'bg-muted'}`}
                   >
-                    {v < 60 ? `${v}s` : `${v / 60}m`}
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${dbEnabled ? 'left-5' : 'left-0.5'}`} />
                   </button>
+                </div>
+
+                <div className="border border-accent p-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs-mono uppercase">Offline-Modus</div>
+                    <div className="text-[0.7rem] text-muted">Nur MongoDB lesen, keine yfinance-Zugriffe</div>
+                  </div>
+                  <button
+                    onClick={() => setDbOffline(!dbOffline)}
+                    className={`w-10 h-5 rounded-full transition-colors relative ${dbOffline ? 'bg-accent' : 'bg-muted'}`}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${dbOffline ? 'left-5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+
+                <div className="border border-accent p-3">
+                  <div className="text-xs-mono uppercase mb-1">MongoDB URI</div>
+                  <div className="text-[0.7rem] text-muted mb-2">z. B. mongodb://10.0.0.176:27017/stock_dashboard_2</div>
+                  <input
+                    type="text"
+                    value={dbUri}
+                    onChange={(e) => setDbUri(e.target.value)}
+                    className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
+                    placeholder="mongodb://host:27017/dbname"
+                  />
+                </div>
+
+                <div className="border border-accent p-3">
+                  <div className="text-xs-mono uppercase mb-1">Cache-TTL (Sekunden)</div>
+                  <input
+                    type="number"
+                    min={60}
+                    max={86400}
+                    value={dbTtl}
+                    onChange={(e) => setDbTtl(parseInt(e.target.value) || 3600)}
+                    className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleDbConnect}
+                    disabled={connecting || !dbUri}
+                    className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors disabled:opacity-40"
+                  >
+                    {connecting ? 'Verbinde...' : <><Plug size={14} /> Verbinden</>}
+                  </button>
+
+                  {dbConfig?.connected && dbConfig?.enabled && (
+                    <span className="flex items-center gap-1 text-xs-mono text-pos">
+                      <CheckCircle size={12} /> {dbConfig?.offline ? 'Offline' : 'Aktiv'}
+                    </span>
+                  )}
+                  {dbConfig?.connected && !dbConfig?.enabled && (
+                    <span className="flex items-center gap-1 text-xs-mono text-muted">
+                      <Power size={12} /> Aus
+                    </span>
+                  )}
+                  {dbConfig?.connected === false && dbUri && (
+                    <span className="text-xs-mono text-neg">Fehler</span>
+                  )}
+                </div>
+              </div>
+            </Section>
+          </div>
+
+          {/* ── Farben ── */}
+          <div className="border-t border-accent pt-4 mb-4">
+            <Section id="colors" title="Farben" icon={Palette}>
+              <div className="space-y-3">
+                {FIELDS.map(f => (
+                  <div key={f.key} className="flex items-center justify-between border border-accent p-3">
+                    <div>
+                      <div className="text-xs-mono uppercase">{f.label}</div>
+                      <div className="text-[0.7rem] text-muted">{f.desc}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={colors[f.key] || DEFAULTS[f.key]}
+                        onChange={(e) => handleChange(f.key, e.target.value)}
+                        className="w-20 bg-background border border-accent text-xs-mono p-1 focus:outline-none focus:border-muted transition-colors uppercase font-mono"
+                        placeholder="#000000"
+                        maxLength={7}
+                      />
+                      <input
+                        type="color"
+                        value={colors[f.key] || DEFAULTS[f.key]}
+                        onChange={(e) => handleChange(f.key, e.target.value)}
+                        className="w-10 h-8 p-0 border-0 cursor-pointer bg-transparent"
+                      />
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
-          </Section>
+
+              <button
+                onClick={() => onChange({ ...DEFAULTS })}
+                className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors mt-3"
+              >
+                <RotateCcw size={14} /> Standard
+              </button>
+            </Section>
+          </div>
+
+          {/* ── Schriftgröße + Schriftart ── */}
+          <div className="border-t border-accent pt-4 mb-4">
+            <Section id="font" title="Schrift" icon={Type}>
+              <div className="border border-accent p-3 mb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-xs-mono uppercase">Größe</div>
+                    <div className="text-[0.7rem] text-muted">Aktuell {fontSizePx}px</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onFontScaleChange?.(PX_TO_SCALE(fontSizePx - 1))}
+                      className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
+                      title="Schrift kleiner"
+                    >
+                      -
+                    </button>
+                    <button
+                      onClick={() => onFontScaleChange?.(100)}
+                      className="h-8 border border-accent px-2 text-[0.7rem] text-muted hover:text-white transition-colors"
+                      title="Auf Standardgröße setzen"
+                    >
+                      {SCALE_TO_PX(100)}px
+                    </button>
+                    <button
+                      onClick={() => onFontScaleChange?.(PX_TO_SCALE(fontSizePx + 1))}
+                      className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
+                      title="Schrift größer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {FONT_SIZES.map(px => (
+                    <button
+                      key={px}
+                      onClick={() => onFontScaleChange?.(PX_TO_SCALE(px))}
+                      className={`h-7 px-2 text-[0.7rem] border border-accent transition-colors ${fontSizePx === px ? 'text-white' : 'text-muted hover:text-white'}`}
+                    >
+                      {px}px
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border border-accent p-3">
+                <div className="text-xs-mono uppercase mb-1">Schriftart</div>
+                <div className="text-[0.7rem] text-muted mb-2">Wird auf die gesamte Oberfläche angewendet</div>
+                <select
+                  value={fontFamily}
+                  onChange={(e) => onFontFamilyChange?.(e.target.value)}
+                  className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors"
+                >
+                  {FONTS.map(f => (
+                    <option key={f.label} value={f.value} className="bg-background">{f.label}</option>
+                  ))}
+                </select>
+              </div>
+            </Section>
+          </div>
+
+          {/* ── Aktualisierung ── */}
+          <div className="border-t border-accent pt-4">
+            <Section id="refresh" title="Aktualisierung" icon={RefreshCw}>
+              <div className="border border-accent p-3">
+                <div className="text-xs-mono uppercase mb-1">Auto-Aktualisierung</div>
+                <div className="text-[0.7rem] text-muted mb-2">Kurse & Performance werden alle {refreshInterval}s neu geladen (Offline-Modus pausiert)</div>
+                <input
+                  type="number"
+                  min={15}
+                  max={3600}
+                  step={5}
+                  value={refreshInterval}
+                  onChange={(e) => onRefreshIntervalChange?.(parseInt(e.target.value, 10) || 60)}
+                  className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
+                />
+                <div className="flex gap-2 mt-2">
+                  {[15, 60, 300, 900].map(v => (
+                    <button
+                      key={v}
+                      onClick={() => onRefreshIntervalChange?.(v)}
+                      className={`h-7 px-2 text-[0.7rem] border border-accent transition-colors ${refreshInterval === v ? 'text-white' : 'text-muted hover:text-white'}`}
+                      title={`Alle ${v / 60}m`}
+                    >
+                      {v < 60 ? `${v}s` : `${v / 60}m`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Section>
+          </div>
         </div>
       </div>
     </div>
