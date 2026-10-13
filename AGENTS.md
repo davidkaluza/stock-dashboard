@@ -13,16 +13,16 @@ start-local-dev.bat                  # Backend + Frontend parallel (Windows)
 ./deploy/install-systemd.sh          # Debian/Linux: systemd-Services (Hintergrund), Frontend via `serve` (devDependency in package.json), Pfade via __APP_DIR__-Template
 ```
 
-**Single-Server**: `npm run build` → `python main.py` servt das gebaute Frontend statisch + API auf 8001. Dev-Server proxyt nichts. Statische Dateien werden aus `backend/frontend/dist/` ODER `../frontend/dist/` gemountet (erste gefundene, `main.py:773-780`).
+**Single-Server**: `npm run build` → `python main.py` servt das gebaute Frontend statisch + API auf 8001. Dev-Server proxyt nichts. Statische Dateien werden aus `backend/frontend/dist/` ODER `../frontend/dist/` gemountet (erste gefundene, `main.py:784-793`).
 
 ## Tücken
 
 | Was | Wo | Detail |
 |---|---|---|
 | NaN-Patching | `main.py:15-46` | `JSONResponse.render` monket (`clean_nans`), NaN/Inf aus yfinance/pandas vor JSON zu entfernen |
-| WKN-Auflösung | `main.py:336-398` | `WKN_MAP` (~50 Einträge) mapped deutsche WKNs → Ticker. 6-stellige Codes: erst Map, sonst `.DE`-Anhang. Symbole mit `.` oder ≤5 Zeichen gehen raw durch |
-| Suche | `main.py:674-768` | `/search?q=...&limit=10` — Mehrstufig: WKN_MAP → `yf.Search` → `yf.query` → Direkt-Ticker-Fallback. Dedupe per (symbol, exchange) |
-| Move/Copy | `App.jsx:419-444` | `handleMoveStock`/`handleCopyStock`; Button (`ArrowLeftRight`) in `StockCard.jsx` + `TableView.jsx`, Dialog in App |
+| WKN-Auflösung | `main.py:342-406` | `WKN_MAP` (~50 Einträge) mapped deutsche WKNs → Ticker. 6-stellige Codes: erst Map, sonst `.DE`-Anhang. Symbole mit `.` oder ≤5 Zeichen gehen raw durch |
+| Suche | `main.py:687-781` | `/search?q=...&limit=10` — Mehrstufig: WKN_MAP → `yf.Search` → `yf.query` → Direkt-Ticker-Fallback. Dedupe per (symbol, exchange) |
+| Move/Copy | `App.jsx:444-483` | `handleMoveStock`/`handleCopyStock`; Button (`ArrowLeftRight`) in `StockCard.jsx` + `TableView.jsx`, Dialog in App |
 | `.old`-Leichen | `frontend/src/components/*.jsx.old` | Alte Varianten, ungenutzt. Auch `NewsPanel.jsx` tot (nicht importiert). `backend/main.old.py` nur noch im Git-Index, nicht auf Disk |
 | `.gitignore` | Repo-Root | Ignoriert `node_modules/`, `dist/`, `package-lock.json`, `*.pyc`, `db_config.json` (local), `*.old`, `es_*`. Junk aber noch im Git-Index getrackt (9705 Dateien) — erst `git rm --cached` untracked |
 | Kein `vite.config.js` | — | Nur Vite-Standard (plugin-react, tailwind via postcss). Kein Proxy, keine Aliase |
