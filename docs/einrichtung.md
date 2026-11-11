@@ -137,3 +137,32 @@ In **Safari** die App-Adresse öffnen → **Teilen** → **Zum Home-Bildschirm**
 - [ ] Charts 1W bis 10Y und „Seit Kauf“
 - [ ] JSON-Sicherung → auf zweitem Gerät wiederherstellen
 - [ ] Flugmodus: App startet und zeigt die letzten Kurse
+
+## Teil 3: Suche nach Name, WKN und ISIN
+
+Die Suche läuft über die Supabase Edge Function `lookup` (`supabase/functions/lookup/`). Sie übersetzt WKN und ISIN über OpenFIGI (Bloomberg) in Börsenticker und sucht Namen über Yahoo. Ohne die Funktion lassen sich Ticker weiterhin direkt eingeben.
+
+### Automatisch veröffentlichen (empfohlen)
+
+1. Supabase: oben rechts auf das Profil → **Account preferences → Access Tokens → Generate new token**, z. B. „github-actions“. Den Token kopieren.
+2. GitHub, **Settings → Secrets and variables → Actions**:
+   - **Secret** `SUPABASE_ACCESS_TOKEN` = der Token
+   - **Variable** `SUPABASE_PROJECT_REF` = die Projekt-ID, d. h. der Teil vor `.supabase.co` in der Project URL
+3. **Actions → Edge Functions veröffentlichen → Run workflow**. Danach wird die Funktion bei jeder Änderung an `supabase/functions/` automatisch neu veröffentlicht.
+
+Der Access Token hat Zugriff auf **alle** deine Supabase-Projekte. Er gehört nur in die GitHub Secrets.
+
+### Oder von Hand
+
+Mit installierter Supabase-CLI: `supabase login`, dann `supabase functions deploy lookup --project-ref <projekt-id>`.
+
+### Optional: OpenFIGI-Schlüssel
+
+Ohne Schlüssel erlaubt OpenFIGI 25 Abfragen pro Minute. Für eine Person reicht das. Bei Bedarf gibt es einen kostenlosen Schlüssel auf openfigi.com/api. Du trägst ihn in Supabase unter **Edge Functions → Secrets** als `OPENFIGI_API_KEY` ein.
+
+### Prüfen
+
+In der App ins Suchfeld eingeben:
+- `716460` → `SAP.DE · Xetra` steht oben
+- `A0RPWH` → `EUNL.DE` (iShares Core MSCI World)
+- `Rheinmetall` → `RHM.DE`

@@ -1,0 +1,6 @@
+# Minimale Konfiguration für die Supabase-CLI (nur für das Deployment der Edge Functions genutzt).
+project_id = "stock-dashboard"
+
+[functions.lookup]
+# Nur angemeldete Nutzer dürfen suchen (JWT der Sitzung wird geprüft)
+verify_jwt = true

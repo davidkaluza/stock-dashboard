@@ -56,14 +56,14 @@ const AddStock = ({ onAdd, search, className = '' }) => {
           console.error(error);
           setCandidates([]);
           setIsOpen(true);
-          setSearchError('Suche nicht verfügbar.');
+          setSearchError('Suche nicht verfügbar – Ticker direkt eingeben und mit + hinzufügen.');
         })
         .finally(() => {
           if (!controller.signal.aborted) {
             setIsLoading(false);
           }
         });
-    }, 250);
+    }, 300);
 
     return () => {
       window.clearTimeout(timeoutId);

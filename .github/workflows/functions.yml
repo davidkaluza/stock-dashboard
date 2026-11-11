@@ -1,0 +1,34 @@
+name: Edge Functions veröffentlichen
+
+on:
+  push:
+    branches: [pwa]
+    paths: ["supabase/functions/**", ".github/workflows/functions.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Ohne Zugangsdaten überspringen statt fehlschlagen (Einrichtung siehe docs/einrichtung.md, Teil 3)
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.SUPABASE_ACCESS_TOKEN != '' && env.PROJECT_REF != ''
+
+      - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_ACCESS_TOKEN != '' && env.PROJECT_REF != ''
+        with:
+          version: latest
+
+      - name: lookup deployen
+        if: env.SUPABASE_ACCESS_TOKEN != '' && env.PROJECT_REF != ''
+        run: supabase functions deploy lookup --project-ref "$PROJECT_REF"
+
+      - name: Hinweis
+        if: env.SUPABASE_ACCESS_TOKEN == '' || env.PROJECT_REF == ''
+        run: echo "::notice::SUPABASE_ACCESS_TOKEN oder SUPABASE_PROJECT_REF fehlt – Edge Function nicht veröffentlicht (siehe docs/einrichtung.md, Teil 3)."

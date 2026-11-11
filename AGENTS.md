@@ -19,7 +19,7 @@ python -m pipeline.run quotes --dry-run SAP.DE AAPL    # echte Yahoo-Daten, schr
 python scripts/gen_icons.py           # PWA-Icons in frontend/public/ neu erzeugen (Pillow)
 ```
 
-Workflows: `fetch.yml` (Kursabruf: Mo–Fr alle 30 min, nachts, `repository_dispatch: new-ticker`, manuell), `pages.yml` (Build + Pages bei Push auf `pwa`), `test.yml` (pytest + vitest + Build). Zeitgesteuerte und Dispatch-Workflows laufen nur auf dem **Standard-Zweig**.
+Workflows: `fetch.yml` (Kursabruf: Mo–Fr alle 30 min, nachts, `repository_dispatch: new-ticker`, manuell), `pages.yml` (Build + Pages bei Push auf `pwa`), `functions.yml` (Edge Functions per Supabase-CLI, übersprungen ohne `SUPABASE_ACCESS_TOKEN`), `test.yml` (pytest + vitest + Build). Zeitgesteuerte und Dispatch-Workflows laufen nur auf dem **Standard-Zweig**.
 
 ## Architektur
 
@@ -28,6 +28,7 @@ Workflows: `fetch.yml` (Kursabruf: Mo–Fr alle 30 min, nachts, `repository_disp
 - **Pipeline (`pipeline/`):** `run.py` (Modi, Orchestrierung; `store`/`fetcher` werden injiziert → testbar mit Fakes), `fetch.py` (alles mit yfinance), `calc.py` (reine Funktionen: Performance aus Tageskursen, News-Normalisierung, Split-Erkennung), `store.py` (PostgREST per `requests`). Performance wird aus `daily_prices` berechnet, nicht per yfinance-Abfrage pro Zeitraum.
 - **Frontend-Datenschicht `frontend/src/lib/`:** `market.js` liefert Supabase-Daten in den Formen, die die Komponenten erwarten (`stockData[sym] = {symbol, name, price, change, change_percent, currency, status, fetched_at}`, `statsData[sym] = {performance}`). `history.js` filtert Chart-Zeiträume lokal aus Tageskursen. `tickers.js` gleicht `user_tickers` ab (leere lokale Liste löscht nichts). `backup.js` übernimmt CSV und JSON-Sicherung. `theme.js` setzt gespeicherte Farben vor dem ersten Rendern.
 - **`Root.jsx`** entscheidet zwischen Login (E-Mail-OTP-Code, `shouldCreateUser: false`) und `App.jsx`. `App.jsx` ist der zentrale State-Container, die Komponenten sind präsentational.
+- **Suche:** Edge Function `supabase/functions/lookup/` – `logic.js` ist reines ESM (Deno + vitest, Tests in `frontend/src/lib/lookup.test.js`), `index.ts` nur die Deno-Hülle. WKN/ISIN → OpenFIGI → Börsencode-Tabelle `EXCHANGES` → Yahoo-Ticker; Namen → Yahoo-Suche. Frontend ruft sie über `lib/search.js` (`functions.invoke`) auf.
 - **PWA:** `vite-plugin-pwa` mit `injectManifest`; eigener Service Worker `frontend/src/sw.js` (Precache, Navigation-Fallback; Push-Handler folgen).
 
 ## Tücken

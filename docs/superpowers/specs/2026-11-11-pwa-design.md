@@ -135,9 +135,8 @@ Die OpenFIGI-Treffer werden über eine feste Tabelle von Börsencodes in Yahoo-T
 
 | exchCode | Yahoo-Endung |
 |---|---|
-| GY | `.DE` |
+| GY (Xetra), GR (deutsche Sammelnotierung) | `.DE` |
 | GF | `.F` |
-| GR | `.BE` |
 | GM | `.MU` |
 | GS | `.SG` |
 | GD | `.DU` |
@@ -150,6 +149,10 @@ Die OpenFIGI-Treffer werden über eine feste Tabelle von Börsencodes in Yahoo-T
 | IM | `.MI` |
 | SM | `.MC` |
 | AV | `.VI` |
+
+*Korrektur bei der Umsetzung:* `GR` ist bei Bloomberg die deutsche Composite-Notierung, nicht Berlin. Bei ETFs ist sie oft die einzige deutsche Zeile (z. B. MSCI World: `EUNL GR`, kein `GY`) und wird deshalb auf `.DE` abgebildet. Codes mit unsicherer Bedeutung (GI, GT, …) werden verworfen. Ticker mit Währungsendung (`SAPUSD`) ebenfalls.
+
+Die Logik liegt in `supabase/functions/lookup/logic.js` (reines ESM, auch mit vitest getestet), `index.ts` ist nur die Deno-Hülle. Veröffentlicht wird über `.github/workflows/functions.yml`.
 
 Bei US-Tickern wird `/` durch `-` ersetzt (`BRK/B` → `BRK-B`). Ist die Edge Function nicht erreichbar, übernimmt die PWA die Eingabe als direkten Ticker.
 
@@ -211,7 +214,7 @@ Entfernt werden `backend/`, `deploy/`, `start-local-dev.bat`, `start-debian.sh` 
 ## Tests
 
 - **pytest (`pipeline/tests/`):** `alerts.py` mit allen Regeltypen (Auslösen, Entprellung, Rücksetzen, Erstbefüllung bei News, Grenze von 20 Pushes), Berechnung der Stats aus einer Kursreihe, Behandlung von 404/410 in `push.py` (gemockt), Modus-Steuerung in `run.py` (mit gemocktem `store`/`fetch`).
-- **Deno-Test (`supabase/functions/lookup/`):** Erkennung von WKN/ISIN/Name und die Übersetzung exchCode → Yahoo inklusive Sortierung.
+- **vitest für `lookup` (`frontend/src/lib/lookup.test.js`):** Erkennung von WKN/ISIN/Name und die Übersetzung exchCode → Yahoo inklusive Sortierung. Statt eines Deno-Tests, weil die Logik reines ESM ist.
 - **vitest (`frontend/`):** Zeitraumfilter und „seit Kauf“ auf `daily_prices`, CSV- und JSON-Export → Import (Ergebnis identisch), `syncTickers`-Diff.
 - **`test.yml`:** führt alle drei Testsuiten bei jedem Push und Pull Request aus.
 - **Manuell (Checkliste in `docs/einrichtung.md`):** Installation auf dem iPhone, Login per Code, Push-Erlaubnis, Test-Push, Tipp auf die Nachricht öffnet die Aktie, Offline-Start.

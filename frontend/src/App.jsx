@@ -8,6 +8,7 @@ import { LayoutGrid, Table, Download, Upload, Printer, Plus, Trash2, Pencil, Set
 import { fetchSnapshot, fetchDailyPrices, formatFetchedAt } from './lib/market';
 import { CARD_HISTORY_DAYS, DEFAULT_PERIOD, daysAgo, filterHistory, hasHistoryFor, periodStart, toIsoDate } from './lib/history';
 import { collectSymbols, normalizeSymbol, syncTickers } from './lib/tickers';
+import { createSearch } from './lib/search';
 import { buildBackup, buildCsv, downloadFile, emptyAccount, mergeCsvIntoAccounts, parseBackup, parseCsv } from './lib/backup';
 
 const APP_VERSION = '0.2.0';
@@ -89,6 +90,8 @@ const App = ({ client, session }) => {
   const [reminderSnoozedUntil, setReminderSnoozedUntil] = useState(() => Number(localStorage.getItem('backupReminderSnoozedUntil') || 0));
   const [cardSortKey, setCardSortKey] = useState('name');
   const [cardSortDir, setCardSortDir] = useState('asc');
+
+  const search = useMemo(() => createSearch(client), [client]);
 
   const activeAccount = useMemo(() => {
     if (!activeAccountId) return null;
@@ -634,7 +637,7 @@ const App = ({ client, session }) => {
             <Table size={16} />
           </button>
         </div>
-        <AddStock onAdd={addStock} className="flex-1 min-w-[14rem]" />
+        <AddStock onAdd={addStock} search={search} className="flex-1 min-w-[14rem]" />
         <button onClick={loadSnapshot} disabled={loadingData} className={`${iconButton} disabled:opacity-40`} title="Kurse neu laden">
           <RefreshCw size={16} className={loadingData ? 'animate-spin' : ''} />
         </button>
