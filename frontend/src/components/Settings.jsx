@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, RotateCcw, Database, Plug, CheckCircle, Power, Minus, Plus, Palette, Type, RefreshCw } from 'lucide-react';
+import { X, RotateCcw, Minus, Plus, Palette, Type, RefreshCw, User, LogOut, Download, Upload } from 'lucide-react';
 
 const DEFAULTS = {
   background: '#33312B',
@@ -24,7 +24,7 @@ const FIELDS = [
 ];
 
 const NAV = [
-  { id: 'db', label: 'Datenbank', icon: Database },
+  { id: 'account', label: 'Konto', icon: User },
   { id: 'colors', label: 'Farben', icon: Palette },
   { id: 'font', label: 'Schrift', icon: Type },
   { id: 'refresh', label: 'Aktualisierung', icon: RefreshCw },
@@ -46,35 +46,13 @@ const FONT_SIZES = [12, 14, 16, 18, 20, 22];
 const PX_TO_SCALE = (px) => Math.max(80, Math.min(140, Math.round((px * 100) / 16)));
 const SCALE_TO_PX = (scale) => Math.round((scale * 16) / 100);
 
-const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, fontScale = 100, onFontScaleChange, fontFamily = "'JetBrains Mono', monospace", onFontFamilyChange, refreshInterval = 60, onRefreshIntervalChange }) => {
-  const [dbUri, setDbUri] = useState(dbConfig?.uri || '');
-  const [dbTtl, setDbTtl] = useState(dbConfig?.ttl || 3600);
-  const [dbEnabled, setDbEnabled] = useState(dbConfig?.enabled || false);
-  const [dbOffline, setDbOffline] = useState(dbConfig?.offline || false);
-  const [connecting, setConnecting] = useState(false);
+const Settings = ({ colors, onChange, onClose, email, onSignOut, onExportBackup, onImportFile, lastBackupAt, fontScale = 100, onFontScaleChange, fontFamily = "'JetBrains Mono', monospace", onFontFamilyChange, refreshInterval = 300, onRefreshIntervalChange }) => {
   const [collapsed, setCollapsed] = useState(() => new Set(['colors', 'font', 'refresh']));
 
   const fontSizePx = SCALE_TO_PX(fontScale);
 
   const handleChange = (key, val) => {
     onChange({ ...colors, [key]: val });
-  };
-
-  const handleDbConnect = async () => {
-    setConnecting(true);
-    try {
-      const res = await fetch(`${API_BASE}/db/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uri: dbUri, ttl: dbTtl, enabled: dbEnabled, offline: dbOffline }),
-      });
-      const data = await res.json();
-      onDbConfig({ uri: dbUri, ttl: dbTtl, enabled: data.enabled, offline: data.offline, connected: data.connected });
-    } catch (e) {
-      onDbConfig({ uri: dbUri, ttl: dbTtl, enabled: dbEnabled, offline: dbOffline, connected: false });
-    } finally {
-      setConnecting(false);
-    }
   };
 
   const toggleSection = (id) => {
@@ -151,83 +129,42 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
         </div>
 
         <div className="p-6">
-          {/* ── Datenbank ── */}
+          {/* ── Konto & Sicherung ── */}
           <div className="mb-4">
-            <Section id="db" title="Datenbank (optional)" icon={Database}>
+            <Section id="account" title="Konto & Sicherung" icon={User}>
               <div className="space-y-3">
-                {/* Toggle Ein/Aus */}
-                <div className="border border-accent p-3 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs-mono uppercase">Cache</div>
-                    <div className="text-[0.7rem] text-muted">Datenbank-Caching ein-/ausschalten</div>
+                <div className="border border-accent p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs-mono uppercase">Angemeldet</div>
+                    <div className="text-[0.7rem] text-muted truncate">{email || '—'}</div>
                   </div>
                   <button
-                    onClick={() => setDbEnabled(!dbEnabled)}
-                    className={`w-10 h-5 rounded-full transition-colors relative ${dbEnabled ? 'bg-accent' : 'bg-muted'}`}
+                    onClick={onSignOut}
+                    className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors"
                   >
-                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${dbEnabled ? 'left-5' : 'left-0.5'}`} />
-                  </button>
-                </div>
-
-                <div className="border border-accent p-3 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs-mono uppercase">Offline-Modus</div>
-                    <div className="text-[0.7rem] text-muted">Nur Supabase lesen, keine yfinance-Zugriffe</div>
-                  </div>
-                  <button
-                    onClick={() => setDbOffline(!dbOffline)}
-                    className={`w-10 h-5 rounded-full transition-colors relative ${dbOffline ? 'bg-accent' : 'bg-muted'}`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${dbOffline ? 'left-5' : 'left-0.5'}`} />
+                    <LogOut size={14} /> Abmelden
                   </button>
                 </div>
 
                 <div className="border border-accent p-3">
-                  <div className="text-xs-mono uppercase mb-1">Supabase / Postgres URI</div>
-                  <div className="text-[0.7rem] text-muted mb-2">Supabase → Connect → Session pooler, z. B. postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres</div>
-                  <input
-                    type="text"
-                    value={dbUri}
-                    onChange={(e) => setDbUri(e.target.value)}
-                    className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
-                    placeholder="postgresql://user:passwort@host:5432/postgres"
-                  />
-                </div>
-
-                <div className="border border-accent p-3">
-                  <div className="text-xs-mono uppercase mb-1">Cache-TTL (Sekunden)</div>
-                  <input
-                    type="number"
-                    min={60}
-                    max={86400}
-                    value={dbTtl}
-                    onChange={(e) => setDbTtl(parseInt(e.target.value) || 3600)}
-                    className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
-                  />
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleDbConnect}
-                    disabled={connecting || !dbUri}
-                    className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors disabled:opacity-40"
-                  >
-                    {connecting ? 'Verbinde...' : <><Plug size={14} /> Verbinden</>}
-                  </button>
-
-                  {dbConfig?.connected && dbConfig?.enabled && (
-                    <span className="flex items-center gap-1 text-xs-mono text-pos">
-                      <CheckCircle size={12} /> {dbConfig?.offline ? 'Offline' : 'Aktiv'}
-                    </span>
-                  )}
-                  {dbConfig?.connected && !dbConfig?.enabled && (
-                    <span className="flex items-center gap-1 text-xs-mono text-muted">
-                      <Power size={12} /> Aus
-                    </span>
-                  )}
-                  {dbConfig?.connected === false && dbUri && (
-                    <span className="text-xs-mono text-neg">Fehler</span>
-                  )}
+                  <div className="text-xs-mono uppercase mb-1">Sicherung (JSON)</div>
+                  <div className="text-[0.7rem] text-muted mb-2">
+                    Depots, Kaufdaten und Einstellungen liegen nur auf diesem Gerät. Mit der Sicherung überträgst du sie auf ein
+                    anderes Gerät oder stellst sie wieder her.
+                    {lastBackupAt ? ` Letzte Sicherung: ${new Date(lastBackupAt).toLocaleDateString('de-DE')}.` : ' Noch keine Sicherung erstellt.'}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={onExportBackup}
+                      className="flex-1 flex items-center justify-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors"
+                    >
+                      <Download size={14} /> Sichern
+                    </button>
+                    <label className="flex-1 flex items-center justify-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors cursor-pointer">
+                      <Upload size={14} /> Wiederherstellen
+                      <input type="file" accept=".json,application/json" onChange={onImportFile} className="hidden" />
+                    </label>
+                  </div>
                 </div>
               </div>
             </Section>
@@ -339,18 +276,18 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
             <Section id="refresh" title="Aktualisierung" icon={RefreshCw}>
               <div className="border border-accent p-3">
                 <div className="text-xs-mono uppercase mb-1">Auto-Aktualisierung</div>
-                <div className="text-[0.7rem] text-muted mb-2">Kurse & Performance werden alle {refreshInterval}s neu geladen (Offline-Modus pausiert)</div>
+                <div className="text-[0.7rem] text-muted mb-2">Die App lädt alle {refreshInterval}s die neuesten Kurse aus der Datenbank. Die Datenbank selbst wird alle 30 min aktualisiert.</div>
                 <input
                   type="number"
-                  min={15}
+                  min={60}
                   max={3600}
-                  step={5}
+                  step={30}
                   value={refreshInterval}
-                  onChange={(e) => onRefreshIntervalChange?.(parseInt(e.target.value, 10) || 60)}
+                  onChange={(e) => onRefreshIntervalChange?.(parseInt(e.target.value, 10) || 300)}
                   className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
                 />
                 <div className="flex gap-2 mt-2">
-                  {[15, 60, 300, 900].map(v => (
+                  {[60, 300, 900, 1800].map(v => (
                     <button
                       key={v}
                       onClick={() => onRefreshIntervalChange?.(v)}

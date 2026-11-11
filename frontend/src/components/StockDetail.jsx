@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip } from 'recharts';
 import { X, ExternalLink, GripVertical, Plus, Minus } from 'lucide-react';
-import axios from 'axios';
+import { CHART_PERIODS, DEFAULT_PERIOD, SINCE_PURCHASE, filterHistory } from '../lib/history';
+import { fetchDetails, fetchNews, formatFetchedAt } from '../lib/market';
 
-const API_BASE = import.meta.env.DEV ? 'http://localhost:8001' : '';
-
-const DEFAULT_SECTION_ORDER = ['performance', 'chart', 'purchase', 'kennzahlen', 'unternehmen', 'analysten'];
+const DEFAULT_SECTION_ORDER = ['performance', 'chart', 'purchase', 'news', 'kennzahlen', 'unternehmen', 'analysten'];
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 const MIN_CAGR_DAYS = 30;
@@ -122,8 +121,10 @@ const InfoRow = ({ label, value, cls }) => (
 const StockDetail = ({
   symbol,
   stockData = {},
-  historyData = {},
+  dailyRows = [],
   statsData = {},
+  client,
+  onEnsureHistory,
   purchasePrice,
   shareQuantity,
   purchaseDate,
@@ -135,48 +136,49 @@ const StockDetail = ({
   const [detail, setDetail] = useState(null);
   const [detailError, setDetailError] = useState(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
-  const [period, setPeriod] = useState('1mo');
-  const [chartHistory, setChartHistory] = useState([]);
+  const [period, setPeriod] = useState(DEFAULT_PERIOD);
+  const [news, setNews] = useState([]);
   const [sectionOrder, setSectionOrder] = useState(DEFAULT_SECTION_ORDER);
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [dragId, setDragId] = useState(null);
 
-  useEffect(() => {
-    setChartHistory(Array.isArray(historyData?.[symbol]) ? historyData[symbol] : []);
-  }, [symbol, historyData]);
+  const chartHistory = useMemo(
+    () => filterHistory(dailyRows, period, new Date(), purchaseDate),
+    [dailyRows, period, purchaseDate],
+  );
 
   useEffect(() => {
-    setPeriod('1mo');
+    setPeriod(DEFAULT_PERIOD);
     setDetail(null);
     setDetailError(null);
+    setNews([]);
   }, [symbol]);
 
   useEffect(() => {
-    if (!symbol) return undefined;
-
-    const controller = new AbortController();
+    if (!symbol || !client) return undefined;
+    let cancelled = false;
 
     setIsDetailLoading(true);
     setDetailError(null);
 
-    axios
-      .get(`${API_BASE}/detail/${encodeURIComponent(symbol)}`, { signal: controller.signal })
-      .then((res) => {
-        setDetail(res.data ?? null);
+    Promise.all([fetchDetails(client, symbol), fetchNews(client, symbol)])
+      .then(([d, n]) => {
+        if (cancelled) return;
+        setDetail(d);
+        setNews(n);
+        if (!d) setDetailError('Für diese Aktie liegen noch keine Details vor (werden nachts geladen).');
       })
       .catch((err) => {
-        if (axios.isCancel?.(err) || err.name === 'CanceledError') return;
+        if (cancelled) return;
         console.error(err);
         setDetailError('Details konnten nicht geladen werden.');
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsDetailLoading(false);
-        }
+        if (!cancelled) setIsDetailLoading(false);
       });
 
-    return () => controller.abort();
-  }, [symbol]);
+    return () => { cancelled = true; };
+  }, [symbol, client]);
 
   const stock = stockData?.[symbol] ?? {};
   const stats = statsData?.[symbol]?.performance ?? {};
@@ -230,41 +232,15 @@ const StockDetail = ({
   }, [chartHistory]);
 
   const periods = useMemo(() => [
-    { label: '1D', value: '1d' },
-    { label: '1W', value: '5d' },
-    { label: '1M', value: '1mo' },
-    { label: '6M', value: '6mo' },
-    { label: '1Y', value: '1y' },
-    { label: '5Y', value: '5y' },
-    ...(purchaseDate ? [{ label: 'Seit Kauf', value: 'since_purchase' }] : []),
+    ...CHART_PERIODS,
+    ...(purchaseDate ? [{ label: 'Seit Kauf', value: SINCE_PURCHASE }] : []),
   ], [purchaseDate]);
 
   const handlePeriodChange = useCallback((value) => {
     if (!symbol) return;
-
     setPeriod(value);
-
-    const params = value === 'since_purchase' && purchaseDate
-      ? `?start=${encodeURIComponent(purchaseDate)}`
-      : `?period=${encodeURIComponent(value)}`;
-
-    axios
-      .get(`${API_BASE}/history/${encodeURIComponent(symbol)}${params}`)
-      .then((res) => {
-        const prices = Array.isArray(res.data?.prices) ? res.data.prices : [];
-        const dates = Array.isArray(res.data?.dates) ? res.data.dates : [];
-
-        setChartHistory(
-          prices.map((price, index) => ({
-            price,
-            date: dates[index] ?? '',
-          })),
-        );
-      })
-      .catch((err) => {
-        console.error(err);
-      });
-  }, [symbol, purchaseDate]);
+    onEnsureHistory?.(symbol, value);
+  }, [symbol, onEnsureHistory]);
 
   const toggleSection = useCallback((id) => {
     setCollapsed((prev) => {
@@ -510,6 +486,24 @@ const StockDetail = ({
           </div>
         );
 
+      case 'news':
+        return news.length === 0 ? (
+          <p className="text-xs-mono text-muted">Keine Meldungen.</p>
+        ) : (
+          <ul className="space-y-2">
+            {news.map((item) => (
+              <li key={item.id} className="text-xs-mono border-b border-accent/30 pb-2 last:border-b-0">
+                <a href={item.link || '#'} target="_blank" rel="noopener noreferrer" className="hover:text-accent transition-colors">
+                  {item.title} <ExternalLink size={10} className="inline" aria-hidden="true" />
+                </a>
+                <div className="text-[0.72rem] text-muted">
+                  {item.publisher || ''}{item.published_at ? ` · ${new Date(item.published_at).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}` : ''}
+                </div>
+              </li>
+            ))}
+          </ul>
+        );
+
       case 'chart':
         return (
           <>
@@ -577,6 +571,7 @@ const StockDetail = ({
     unternehmen: 'Unternehmen',
     analysten: 'Analysten & Schätzungen',
     chart: 'Chart',
+    news: 'News',
   };
 
   return (
@@ -606,7 +601,10 @@ const StockDetail = ({
             <h2 id="stock-detail-title" className="text-title-mono font-bold uppercase">
               {stock.name || 'N/A'} <span className="text-muted">({stockSymbol})</span>
             </h2>
-            <p className="text-xs-mono text-muted">{stock.currency || '—'} · {detail?.exchange || ''}</p>
+            <p className="text-xs-mono text-muted">
+              {stock.currency || '—'} · {detail?.exchange || ''}
+              {formatFetchedAt(stock.fetched_at) ? ` · ${formatFetchedAt(stock.fetched_at)}` : ''}
+            </p>
             {isDetailLoading && <p className="text-[0.72rem] text-muted mt-1">Details werden geladen…</p>}
             {detailError && <p className="text-[0.72rem] text-neg mt-1">{detailError}</p>}
           </div>

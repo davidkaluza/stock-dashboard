@@ -1,7 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
+import Root from './Root.jsx'
 import './index.css'
+import { applyStoredTheme } from './lib/theme'
+
+applyStoredTheme()
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -38,7 +41,7 @@ class ErrorBoundary extends React.Component {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <Root />
     </ErrorBoundary>
   </React.StrictMode>,
 )

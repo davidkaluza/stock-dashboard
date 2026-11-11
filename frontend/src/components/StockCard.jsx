@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip } from 'recharts';
 import { Trash2, ArrowLeftRight } from 'lucide-react';
+import { CHART_PERIODS, DEFAULT_PERIOD, SINCE_PURCHASE } from '../lib/history';
+import { formatFetchedAt } from '../lib/market';
 
 const DEFAULT_CHART_DOMAIN = { min: 0, max: 100 };
 const CAGR_MIN_DAYS = 30;
@@ -64,10 +66,16 @@ const StockCard = ({
   accounts,
   activeAccountId,
 }) => {
-  const [period, setPeriod] = useState('1mo');
+  const [period, setPeriod] = useState(DEFAULT_PERIOD);
+  const statusText = stock.status === 'unknown'
+    ? 'Ticker bei Yahoo unbekannt'
+    : stock.status === 'pending' || stock.price === undefined
+      ? 'wird geladen…'
+      : formatFetchedAt(stock.fetched_at);
 
   const symbol = stock.symbol || '';
   const chartHistory = Array.isArray(history) ? history : [];
+  const hasPrice = Number.isFinite(Number(stock.price)) && stock.price !== null && stock.price !== '';
   const currentPrice = toNumber(stock.price);
   const change = toNumber(stock.change);
   const changePercent = toNumber(stock.change_percent);
@@ -103,13 +111,8 @@ const StockCard = ({
   }, [chartHistory]);
 
   const periods = useMemo(() => [
-    { label: '1D', value: '1d' },
-    { label: '1W', value: '5d' },
-    { label: '1M', value: '1mo' },
-    { label: '6M', value: '6mo' },
-    { label: '1Y', value: '1y' },
-    { label: '5Y', value: '5y' },
-    ...(purchaseDate ? [{ label: 'Seit Kauf', value: 'since_purchase' }] : []),
+    ...CHART_PERIODS,
+    ...(purchaseDate ? [{ label: 'Seit Kauf', value: SINCE_PURCHASE }] : []),
   ], [purchaseDate]);
 
   const daysHeld = useMemo(() => {
@@ -125,22 +128,16 @@ const StockCard = ({
   }, [purchaseDate]);
 
   const useCagr = buyPrice > 0 && daysHeld !== null && daysHeld >= CAGR_MIN_DAYS;
-  const profitSincePurchase = buyPrice > 0
+  const profitSincePurchase = hasPrice && buyPrice > 0
     ? useCagr
       ? (Math.pow(currentPrice / buyPrice, 365 / daysHeld) - 1) * 100
       : ((currentPrice - buyPrice) / buyPrice) * 100
     : null;
   const isProfitPct = profitSincePurchase !== null && profitSincePurchase >= 0;
-  const plPct = buyPrice > 0 ? ((currentPrice - buyPrice) / buyPrice) * 100 : null;
+  const plPct = hasPrice && buyPrice > 0 ? ((currentPrice - buyPrice) / buyPrice) * 100 : null;
 
   const handlePeriodChange = (value) => {
     setPeriod(value);
-
-    if (value === 'since_purchase' && purchaseDate) {
-      onPeriodChange?.(symbol, null, purchaseDate);
-      return;
-    }
-
     onPeriodChange?.(symbol, value);
   };
 
@@ -154,7 +151,12 @@ const StockCard = ({
           >
             {stock.name || 'N/A'} <span className="text-muted">({symbol || 'N/A'})</span>
           </h3>
-          <p className="text-xs-mono text-muted">{stock.currency || '—'}</p>
+          <p className="text-xs-mono text-muted">
+            {stock.currency || '—'}
+            {statusText && (
+              <span className={stock.status === 'unknown' ? 'text-neg' : ''}> · {statusText}</span>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-1">
           {accounts && accounts.length > 1 && (
@@ -185,10 +187,12 @@ const StockCard = ({
       </div>
 
       <div className="flex items-baseline gap-2">
-        <span className="text-lg font-bold">{formatNumber(currentPrice)}</span>
-        <span className={`text-xs-mono ${isPositive ? 'text-pos' : 'text-neg'}`}>
-          {formatNumber(change)} ({formatPercent(changePercent)})
-        </span>
+        <span className="text-lg font-bold">{hasPrice ? formatNumber(currentPrice) : '—'}</span>
+        {hasPrice && (
+          <span className={`text-xs-mono ${isPositive ? 'text-pos' : 'text-neg'}`}>
+            {formatNumber(change)} ({formatPercent(changePercent)})
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-6 gap-0 border-y border-accent py-2">
@@ -247,7 +251,7 @@ const StockCard = ({
       <div className="flex justify-between items-center text-xs-mono">
         <span className="text-muted">
           Buy: {formatNumber(buyValue)} /{' '}
-          <span className={currentValueClass}>Curr: {formatNumber(currentValue)}</span>{' '}
+          <span className={hasPrice ? currentValueClass : ''}>Curr: {hasPrice ? formatNumber(currentValue) : '—'}</span>{' '}
           <span className={currentValueClass}>({plPct !== null ? formatPercent(plPct) : '—'})</span>
         </span>
         <div className="text-right">

@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-yfinance
-pandas
-pydantic
-psycopg[binary]
-numpy

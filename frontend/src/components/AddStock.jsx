@@ -1,8 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
-import axios from 'axios';
-
-const API_BASE = import.meta.env.DEV ? 'http://localhost:8001' : '';
 
 const MIN_QUERY_LENGTH = 2;
 const MAX_CANDIDATES = 8;
@@ -14,7 +11,8 @@ const sanitizeSymbol = (value) =>
     .replace(/[^A-Z0-9.-]/gi, '')
     .toUpperCase();
 
-const AddStock = ({ onAdd, className = '' }) => {
+// `search(query, signal)` liefert [{symbol, name, exchange, type}]; ohne `search` nur direkte Ticker-Eingabe.
+const AddStock = ({ onAdd, search, className = '' }) => {
   const [query, setQuery] = useState('');
   const [candidates, setCandidates] = useState([]);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -30,7 +28,7 @@ const AddStock = ({ onAdd, className = '' }) => {
   useEffect(() => {
     const value = query.trim();
 
-    if (value.length < MIN_QUERY_LENGTH) {
+    if (value.length < MIN_QUERY_LENGTH || typeof search !== 'function') {
       setCandidates([]);
       setIsOpen(false);
       setActiveIndex(-1);
@@ -44,22 +42,16 @@ const AddStock = ({ onAdd, className = '' }) => {
       setIsLoading(true);
       setSearchError('');
 
-      axios
-        .get(`${API_BASE}/search`, {
-          params: {
-            q: value,
-            limit: MAX_CANDIDATES,
-          },
-          signal: controller.signal,
-        })
-        .then((response) => {
-          const results = Array.isArray(response.data) ? response.data : [];
+      Promise.resolve(search(value, controller.signal))
+        .then((data) => {
+          if (controller.signal.aborted) return;
+          const results = Array.isArray(data) ? data : [];
           setCandidates(results.slice(0, MAX_CANDIDATES));
           setIsOpen(true);
           setActiveIndex(-1);
         })
         .catch((error) => {
-          if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') return;
+          if (controller.signal.aborted || error.name === 'AbortError') return;
 
           console.error(error);
           setCandidates([]);
@@ -77,7 +69,7 @@ const AddStock = ({ onAdd, className = '' }) => {
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [query]);
+  }, [query, search]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -165,7 +157,7 @@ const AddStock = ({ onAdd, className = '' }) => {
             }
           }}
           onKeyDown={handleKeyDown}
-          placeholder="ENTER COMPANY, WKN OR TICKER..."
+          placeholder={search ? 'FIRMA, WKN, ISIN ODER TICKER …' : 'TICKER, Z. B. SAP.DE ODER AAPL'}
           aria-label="Firma, WKN, ISIN oder Ticker eingeben"
           aria-autocomplete="list"
           aria-expanded={isOpen}

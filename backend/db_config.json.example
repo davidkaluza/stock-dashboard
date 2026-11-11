@@ -1,1 +1,0 @@
-{"uri": "postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres", "ttl": 3600, "enabled": false, "offline": false}

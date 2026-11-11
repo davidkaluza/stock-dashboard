@@ -1,7 +1,6 @@
-# Node (Installation erst bei Erstinstallation, danach belassen)
+# Node (package-lock.json wird eingecheckt: reproduzierbare Builds in GitHub Actions)
 node_modules/
 frontend/node_modules/
-package-lock.json
 
 # Vite-Cache
 .vite/
@@ -30,3 +29,6 @@ es_*
 # OS
 .DS_Store
 Thumbs.db
+# Lokale Umgebungsvariablen (Vite)
+.env.local
+.env.*.local

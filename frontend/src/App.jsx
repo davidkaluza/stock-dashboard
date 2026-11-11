@@ -1,15 +1,20 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import StockCard from './components/StockCard';
 import AddStock from './components/AddStock';
 import TableView from './components/TableView';
 import StockDetail from './components/StockDetail';
 import Settings from './components/Settings';
-import { LayoutGrid, Table, Download, Upload, Printer, Plus, Trash2, Pencil, Settings as SettingsIcon, ArrowUp, ArrowDown, ArrowLeftRight, Copy, X, Database, RefreshCw, Power } from 'lucide-react';
+import { LayoutGrid, Table, Download, Upload, Printer, Plus, Trash2, Pencil, Settings as SettingsIcon, ArrowUp, ArrowDown, ArrowLeftRight, Copy, X, RefreshCw, ShieldAlert } from 'lucide-react';
+import { fetchSnapshot, fetchDailyPrices, formatFetchedAt } from './lib/market';
+import { CARD_HISTORY_DAYS, DEFAULT_PERIOD, daysAgo, filterHistory, hasHistoryFor, periodStart, toIsoDate } from './lib/history';
+import { collectSymbols, normalizeSymbol, syncTickers } from './lib/tickers';
+import { buildBackup, buildCsv, downloadFile, emptyAccount, mergeCsvIntoAccounts, parseBackup, parseCsv } from './lib/backup';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.2.0';
 
-const API_BASE = import.meta.env.DEV ? 'http://localhost:8001' : '';
+const PENDING_POLL_SECONDS = 60;          // solange Ticker auf die Action warten
+const BACKUP_REMINDER_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const safeSetItem = (key, value) => {
   try {
@@ -19,77 +24,69 @@ const safeSetItem = (key, value) => {
   }
 };
 
-const formatCacheAge = (ts) => {
-  if (!ts) return null;
-  const diffSec = (Date.now() / 1000) - ts;
-  if (diffSec < 60) return 'gerade eben';
-  if (diffSec < 3600) return `vor ${Math.floor(diffSec / 60)} Min`;
-  if (diffSec < 86400) return `vor ${Math.floor(diffSec / 3600)} Std`;
-  return `vor ${Math.floor(diffSec / 86400)} Tagen`;
+const loadJson = (key, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch {
+    return fallback;
+  }
 };
 
-const App = () => {
+// Tageskurse nur für den Kartenzeitraum dauerhaft speichern (localStorage ist klein)
+const trimDailyForStorage = (dailyPrices) => {
+  const since = daysAgo(CARD_HISTORY_DAYS);
+  const out = {};
+  for (const [sym, entry] of Object.entries(dailyPrices)) {
+    const rows = (entry.rows || []).filter((r) => r.date >= since);
+    out[sym] = { since: entry.since > since ? entry.since : since, loadedOn: entry.loadedOn, rows };
+  }
+  return out;
+};
+
+const App = ({ client, session }) => {
   const [accounts, setAccounts] = useState(() => {
-    const saved = localStorage.getItem('accounts');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed.length ? parsed.map(a => ({ ...a, purchaseDates: a.purchaseDates || {}, oldShares: a.oldShares || [] })) : [{ id: 'default', name: 'Depot 1', watchlist: [], purchasePrices: {}, shareQuantities: {}, purchaseDates: {}, oldShares: [] }];
+    const parsed = loadJson('accounts', null);
+    if (parsed) {
+      return parsed.length ? parsed.map(a => ({ ...a, purchaseDates: a.purchaseDates || {}, oldShares: a.oldShares || [] })) : [emptyAccount('default', 'Depot 1')];
     }
-    const oldWatchlist = JSON.parse(localStorage.getItem('watchlist') || '[]');
-    const oldPrices = JSON.parse(localStorage.getItem('purchasePrices') || '{}');
-    const oldQtys = JSON.parse(localStorage.getItem('shareQuantities') || '{}');
-    return [{ id: 'default', name: 'Depot 1', watchlist: oldWatchlist, purchasePrices: oldPrices, shareQuantities: oldQtys, purchaseDates: {}, oldShares: [] }];
+    // Migration vom alten Einzel-Watchlist-Format
+    return [{
+      ...emptyAccount('default', 'Depot 1'),
+      watchlist: loadJson('watchlist', []),
+      purchasePrices: loadJson('purchasePrices', {}),
+      shareQuantities: loadJson('shareQuantities', {}),
+    }];
   });
-  const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem('activeTab') || localStorage.getItem('activeAccountId') || 'default';
-  });
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || localStorage.getItem('activeAccountId') || 'default');
   const activeAccountId = accounts.some(a => a.id === activeTab) ? activeTab : (accounts[0]?.id || null);
-  const [stockData, setStockData] = useState(() => {
-    const saved = localStorage.getItem('stockData');
-    return saved ? JSON.parse(saved) : {};
-  });
-  const [statsData, setStatsData] = useState(() => {
-    const saved = localStorage.getItem('statsData');
-    return saved ? JSON.parse(saved) : {};
-  });
-  const [historyData, setHistoryData] = useState(() => {
-    const saved = localStorage.getItem('historyData');
-    return saved ? JSON.parse(saved) : {};
-  });
-  const [loading, setLoading] = useState(false);
+  const [stockData, setStockData] = useState(() => loadJson('stockData', {}));
+  const [statsData, setStatsData] = useState(() => loadJson('statsData', {}));
+  const [dailyPrices, setDailyPrices] = useState(() => loadJson('dailyPrices', {})); // {symbol: {since, loadedOn, rows}}
+  const [chartPeriods, setChartPeriods] = useState({});
   const [error, setError] = useState(null);
-  const [viewMode, setViewMode] = useState(() => {
-    return localStorage.getItem('viewMode') || 'cards';
-  });
+  const [loadingData, setLoadingData] = useState(false);
+  const [lastLoadedAt, setLastLoadedAt] = useState(null);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('viewMode') || 'cards');
   const [detailSymbol, setDetailSymbol] = useState(null);
   const [moveCopySymbol, setMoveCopySymbol] = useState(null);
-  const [moveCopyAction, setMoveCopyAction] = useState('move');
   const [showSettings, setShowSettings] = useState(false);
-  const [colorSettings, setColorSettings] = useState(() => {
-    const saved = localStorage.getItem('colorSettings');
-    const base = saved ? JSON.parse(saved) : {};
-    return {
-      background: '#33312B', surface: '#33312B', accent: '#C09537', muted: '#888888',
-      pos: '#22c55e', neg: '#ef4444', posLight: '#86efac', negLight: '#fca5a5',
-      ...base,
-    };
-  });
-  const [dbConfig, setDbConfig] = useState({ uri: '', ttl: 3600, enabled: false, offline: false, connected: false });
-  const [cacheSummary, setCacheSummary] = useState({ items: {}, total_keys: 0 });
-  const [cachePanelOpen, setCachePanelOpen] = useState(() => localStorage.getItem('cachePanelOpen') === 'true');
-  const [refreshingDb, setRefreshingDb] = useState(false);
-  const [refreshProgress, setRefreshProgress] = useState({ done: 0, total: 0, current: '' });
+  const [colorSettings, setColorSettings] = useState(() => ({
+    background: '#33312B', surface: '#33312B', accent: '#C09537', muted: '#888888',
+    pos: '#22c55e', neg: '#ef4444', posLight: '#86efac', negLight: '#fca5a5',
+    ...loadJson('colorSettings', {}),
+  }));
   const [fontScale, setFontScale] = useState(() => {
     const saved = parseInt(localStorage.getItem('fontScale') || '100', 10);
     return Number.isFinite(saved) ? Math.min(140, Math.max(80, saved)) : 100;
   });
-  const [fontFamily, setFontFamily] = useState(() => {
-    return localStorage.getItem('fontFamily') || "'JetBrains Mono', monospace";
-  });
+  const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('fontFamily') || "'JetBrains Mono', monospace");
   const [refreshInterval, setRefreshInterval] = useState(() => {
-    const saved = parseInt(localStorage.getItem('refreshInterval') || '60', 10);
-    return Number.isFinite(saved) ? Math.min(3600, Math.max(15, saved)) : 60;
+    const saved = parseInt(localStorage.getItem('refreshInterval') || '300', 10);
+    return Number.isFinite(saved) ? Math.min(3600, Math.max(60, saved)) : 300;
   });
+  const [lastBackupAt, setLastBackupAt] = useState(() => localStorage.getItem('lastBackupAt'));
+  const [reminderSnoozedUntil, setReminderSnoozedUntil] = useState(() => Number(localStorage.getItem('backupReminderSnoozedUntil') || 0));
   const [cardSortKey, setCardSortKey] = useState('name');
   const [cardSortDir, setCardSortDir] = useState('asc');
 
@@ -98,11 +95,8 @@ const App = () => {
     return accounts.find(a => a.id === activeAccountId) || accounts[0];
   }, [accounts, activeAccountId]);
 
-  const allWatchlistSymbols = useMemo(() => {
-    const set = new Set();
-    accounts.forEach(a => a.watchlist?.forEach(s => set.add(s)));
-    return [...set];
-  }, [accounts]);
+  const allWatchlistSymbols = useMemo(() => collectSymbols(accounts), [accounts]);
+  const symbolsKey = allWatchlistSymbols.join(',');
 
   const stocks = (activeAccount?.watchlist) || [];
   const oldShares = (activeAccount?.oldShares) || [];
@@ -131,14 +125,11 @@ const App = () => {
       const buyB = purchasePrices[b] || 0;
       const dateA = purchaseDates[a] || '';
       const dateB = purchaseDates[b] || '';
-      const daysA = dateA ? Math.floor((new Date() - new Date(dateA)) / (1000 * 60 * 60 * 24)) : 0;
-      const daysB = dateB ? Math.floor((new Date() - new Date(dateB)) / (1000 * 60 * 60 * 24)) : 0;
+      const daysA = dateA ? Math.floor((new Date() - new Date(dateA)) / DAY_MS) : 0;
+      const daysB = dateB ? Math.floor((new Date() - new Date(dateB)) / DAY_MS) : 0;
 
       let va, vb;
       switch (cardSortKey) {
-        case 'name':
-          va = dataA?.name || a; vb = dataB?.name || b;
-          break;
         case 'price':
           va = priceA; vb = priceB;
           break;
@@ -153,6 +144,7 @@ const App = () => {
           va = dateA ? daysA : (cardSortDir === 'asc' ? Infinity : -Infinity);
           vb = dateB ? daysB : (cardSortDir === 'asc' ? Infinity : -Infinity);
           break;
+        case 'name':
         default:
           va = dataA?.name || a; vb = dataB?.name || b;
       }
@@ -163,6 +155,8 @@ const App = () => {
       return cardSortDir === 'asc' ? va - vb : vb - va;
     });
   }, [stocks, stockData, cardSortKey, cardSortDir, purchasePrices, shareQuantities, purchaseDates]);
+
+  // ── Darstellung ──────────────────────────────────────────────
 
   useEffect(() => {
     const root = document.documentElement;
@@ -187,211 +181,165 @@ const App = () => {
     safeSetItem('fontFamily', fontFamily);
   }, [fontFamily]);
 
+  // ── Speichern (nur lokal) ────────────────────────────────────
+
   useEffect(() => {
     safeSetItem('accounts', JSON.stringify(accounts));
     safeSetItem('activeTab', activeTab);
     safeSetItem('viewMode', viewMode);
     safeSetItem('colorSettings', JSON.stringify(colorSettings));
-    safeSetItem('cachePanelOpen', String(cachePanelOpen));
     safeSetItem('refreshInterval', String(refreshInterval));
-  }, [accounts, activeTab, viewMode, purchaseDates, colorSettings, cachePanelOpen, refreshInterval]);
+  }, [accounts, activeTab, viewMode, colorSettings, refreshInterval]);
 
   useEffect(() => { safeSetItem('stockData', JSON.stringify(stockData)); }, [stockData]);
   useEffect(() => { safeSetItem('statsData', JSON.stringify(statsData)); }, [statsData]);
-  useEffect(() => { safeSetItem('historyData', JSON.stringify(historyData)); }, [historyData]);
+  useEffect(() => { safeSetItem('dailyPrices', JSON.stringify(trimDailyForStorage(dailyPrices))); }, [dailyPrices]);
 
   useEffect(() => {
-    const fetchDbConfig = async () => {
-      try {
-        const res = await axios.get(`${API_BASE}/db/config`);
-        setDbConfig(res.data);
-      } catch (e) { /* DB nicht verfuegbar */ }
-    };
-    fetchDbConfig();
+    // Altlasten der Backend-Version entfernen
+    ['historyData', 'cachePanelOpen'].forEach((k) => { try { localStorage.removeItem(k); } catch { /* egal */ } });
+    // Browser bitten, die lokalen Depotdaten nicht automatisch zu löschen
+    navigator.storage?.persist?.().catch(() => {});
+    // Deep-Link ?symbol=… (z. B. aus einer Push-Nachricht) öffnet die Aktie
+    const params = new URLSearchParams(window.location.search);
+    const sym = params.get('symbol');
+    if (sym) {
+      setDetailSymbol(normalizeSymbol(sym));
+      params.delete('symbol');
+      const rest = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''));
+    }
   }, []);
 
+  // ── Daten aus Supabase ───────────────────────────────────────
 
-  const fetchCacheSummary = useCallback(async () => {
-    if (!allWatchlistSymbols.length) {
-      setCacheSummary({ items: {}, total_keys: 0 });
-      return;
-    }
+  const dailyRef = useRef(dailyPrices);
+  dailyRef.current = dailyPrices;
+
+  const loadDaily = useCallback(async (symbols, since) => {
+    if (!symbols.length) return;
+    const bySymbol = await fetchDailyPrices(client, symbols, since);
+    const today = toIsoDate(new Date());
+    setDailyPrices(prev => {
+      const next = { ...prev };
+      for (const [sym, rows] of Object.entries(bySymbol)) {
+        next[sym] = { since, loadedOn: today, rows };
+      }
+      return next;
+    });
+  }, [client]);
+
+  const loadSnapshot = useCallback(async () => {
+    const symbols = symbolsKey ? symbolsKey.split(',') : [];
+    if (!symbols.length) return;
+    setLoadingData(true);
     try {
-      const res = await axios.get(`${API_BASE}/db/cache/summary?symbols=${encodeURIComponent(allWatchlistSymbols.join(','))}`);
-      setCacheSummary(res.data);
+      const snap = await fetchSnapshot(client, symbols);
+      setStockData(prev => ({ ...prev, ...snap.stockData }));
+      setStatsData(prev => ({ ...prev, ...snap.statsData }));
+      setLastLoadedAt(new Date());
+      setError(null);
+
+      // Tageskurse nachladen: fehlend, von gestern oder Symbol inzwischen geladen
+      const today = toIsoDate(new Date());
+      const stale = symbols.filter((s) => {
+        const entry = dailyRef.current[s];
+        const ready = snap.stockData[s]?.status === 'ok';
+        return ready && (!entry || entry.loadedOn !== today || entry.rows.length === 0);
+      });
+      if (stale.length) await loadDaily(stale, daysAgo(CARD_HISTORY_DAYS));
     } catch (e) {
-      setCacheSummary({ items: {}, total_keys: 0 });
-    }
-  }, [allWatchlistSymbols]);
-
-  useEffect(() => {
-    fetchCacheSummary();
-  }, [fetchCacheSummary, dbConfig.connected, dbConfig.enabled, dbConfig.offline]);
-
-  const saveDbConfig = async (patch) => {
-    const next = { ...dbConfig, ...patch };
-    const payload = {
-      uri: next.uri || '',
-      ttl: Number(next.ttl) || 3600,
-      enabled: Boolean(next.enabled),
-      offline: Boolean(next.offline),
-    };
-    const res = await axios.post(`${API_BASE}/db/config`, payload);
-    setDbConfig({ ...next, ...res.data });
-    return { ...next, ...res.data };
-  };
-
-  const handleToggleOffline = async () => {
-    try {
-      await saveDbConfig({ offline: !dbConfig.offline });
-      await fetchCacheSummary();
-    } catch (e) {
-      setError('Offline-Modus konnte nicht umgeschaltet werden. Bitte Datenbank-Verbindung prüfen.');
-    }
-  };
-
-  const handleRefreshDatabase = async () => {
-    if (!allWatchlistSymbols.length) return;
-    const symbols = [...allWatchlistSymbols];
-    const total = symbols.length;
-    const historyPeriods = ['1mo', '6mo', '1y', '5y', 'max'];
-
-    setRefreshingDb(true);
-    setRefreshProgress({ done: 0, total, current: '' });
-    setCachePanelOpen(true);
-    setError(null);
-
-    let wasOffline = dbConfig.offline;
-    try {
-      if (wasOffline) {
-        await saveDbConfig({ offline: false });
-      }
-
-      for (let index = 0; index < symbols.length; index += 1) {
-        const symbol = symbols[index];
-        setRefreshProgress({ done: index, total, current: symbol });
-        await axios.post(`${API_BASE}/db/refresh`, {
-          symbols: [symbol],
-          history_periods: historyPeriods,
-          include_detail: true,
-          include_news: true,
-        });
-        setRefreshProgress({ done: index + 1, total, current: symbol });
-        await fetchCacheSummary();
-      }
-
-      await fetchCacheSummary();
-      for (const symbol of symbols) {
-        try {
-          const [priceRes, histRes, statsRes] = await Promise.all([
-            axios.get(`${API_BASE}/price/${symbol}`),
-            axios.get(`${API_BASE}/history/${symbol}`),
-            axios.get(`${API_BASE}/stats/${symbol}`),
-          ]);
-          setStockData(prev => ({ ...prev, [symbol]: priceRes.data }));
-          setHistoryData(prev => ({ ...prev, [symbol]: histRes.data.prices.map((p, i) => ({ price: p, date: histRes.data.dates[i] })) }));
-          setStatsData(prev => ({ ...prev, [symbol]: statsRes.data }));
-        } catch (e) {
-          console.error(`Error reloading cached data for ${symbol}:`, e);
-        }
-      }
-
-      if (wasOffline) {
-        await saveDbConfig({ offline: true });
-      }
-    } catch (e) {
-      setError('Datenbank-Aktualisierung fehlgeschlagen. Prüfe Supabase, Internet und yfinance.');
-      if (wasOffline) {
-        try { await saveDbConfig({ offline: true }); } catch (restoreError) { console.error(restoreError); }
-      }
+      console.error(e);
+      setError('Kurse konnten nicht geladen werden. Es werden die zuletzt gespeicherten Daten angezeigt.');
     } finally {
-      setRefreshingDb(false);
+      setLoadingData(false);
     }
-  };
+  }, [client, symbolsKey, loadDaily]);
 
-  const fetchSpecificHistory = async (symbol, period, startDate) => {
-    try {
-      const params = startDate ? `?start=${startDate}` : `?period=${period}`;
-      const res = await axios.get(`${API_BASE}/history/${symbol}${params}`);
-      setHistoryData(prev => ({
-        ...prev,
-        [symbol]: res.data.prices.map((p, i) => ({ price: p, date: res.data.dates[i] }))
-      }));
-    } catch (e) {
-      console.error(`Error fetching history for ${symbol}:`, e);
-    }
-  };
-
+  // Ticker abgleichen und Daten laden, sobald sich die Depots ändern
   useEffect(() => {
-    if (allWatchlistSymbols.length === 0) return;
-
-    const fetchAll = async () => {
-      for (const symbol of allWatchlistSymbols) {
-        try {
-          const [priceRes, histRes, statsRes] = await Promise.all([
-            axios.get(`${API_BASE}/price/${symbol}`),
-            axios.get(`${API_BASE}/history/${symbol}`),
-            axios.get(`${API_BASE}/stats/${symbol}`),
-          ]);
-          setStockData(prev => ({ ...prev, [symbol]: priceRes.data }));
-          setHistoryData(prev => {
-            if (prev[symbol] !== undefined) return prev;
-            return { ...prev, [symbol]: histRes.data.prices.map((p, i) => ({ price: p, date: histRes.data.dates[i] })) };
-          });
-          setStatsData(prev => ({ ...prev, [symbol]: statsRes.data }));
-        } catch (e) {
-          console.error(`Error fetching ${symbol}:`, e);
-        }
+    if (!symbolsKey) return undefined;
+    const t = setTimeout(async () => {
+      try {
+        await syncTickers(client, symbolsKey.split(','));
+      } catch (e) {
+        console.error(e);
+        setError('Tickerliste konnte nicht mit dem Server abgeglichen werden.');
       }
-    };
+      loadSnapshot();
+    }, 800);
+    return () => clearTimeout(t);
+  }, [client, symbolsKey, loadSnapshot]);
 
-    fetchAll();
-  }, [allWatchlistSymbols, dbConfig.offline]);
-
+  // Regelmäßig neu laden; schneller, solange Ticker noch auf den ersten Abruf warten
+  const hasPending = allWatchlistSymbols.some((s) => stockData[s]?.status === 'pending' || !stockData[s]);
   useEffect(() => {
-    if (allWatchlistSymbols.length === 0 || dbConfig.offline) return undefined;
+    if (!symbolsKey) return undefined;
+    const seconds = hasPending ? PENDING_POLL_SECONDS : refreshInterval;
+    const id = setInterval(loadSnapshot, seconds * 1000);
+    return () => clearInterval(id);
+  }, [symbolsKey, hasPending, refreshInterval, loadSnapshot]);
 
-    const fetchPriceStats = async () => {
-      for (const symbol of allWatchlistSymbols) {
-        try {
-          const [priceRes, statsRes] = await Promise.all([
-            axios.get(`${API_BASE}/price/${symbol}`),
-            axios.get(`${API_BASE}/stats/${symbol}`),
-          ]);
-          setStockData(prev => ({ ...prev, [symbol]: priceRes.data }));
-          setStatsData(prev => ({ ...prev, [symbol]: statsRes.data }));
-        } catch (e) {
-          console.error(`Error fetching ${symbol}:`, e);
-        }
-      }
-    };
+  // Beim Zurückwechseln in die App sofort aktualisieren
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') loadSnapshot(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadSnapshot]);
 
-    const interval = setInterval(fetchPriceStats, refreshInterval * 1000);
-    return () => clearInterval(interval);
-  }, [allWatchlistSymbols, dbConfig.offline, refreshInterval]);
+  // Neu hinzugefügte Aktie (Kaufkurs null): mit dem ersten bekannten Kurs vorbelegen.
+  // CSV-Importe ohne Kaufkurs bleiben unberührt.
+  useEffect(() => {
+    setAccounts(prev => {
+      let changed = false;
+      const next = prev.map(a => {
+        const fill = a.watchlist.filter(s => a.purchasePrices?.[s] === null && Number.isFinite(stockData[s]?.price));
+        if (!fill.length) return a;
+        changed = true;
+        const purchasePrices = { ...a.purchasePrices };
+        for (const s of fill) purchasePrices[s] = stockData[s].price;
+        return { ...a, purchasePrices };
+      });
+      return changed ? next : prev;
+    });
+  }, [stockData]);
 
-  const addStock = async (symbol) => {
-    setLoading(true);
+  /** Sicherstellen, dass genug Tageskurse für einen Zeitraum geladen sind. */
+  const ensureHistory = useCallback((symbol, period) => {
+    const entry = dailyRef.current[symbol];
+    const date = purchaseDates[symbol] || '';
+    if (hasHistoryFor(entry?.since, period, new Date(), date)) return;
+    const since = periodStart(period, new Date(), date);
+    loadDaily([symbol], since).catch((e) => console.error(e));
+  }, [purchaseDates, loadDaily]);
+
+  const handlePeriodChange = useCallback((symbol, period) => {
+    setChartPeriods(prev => ({ ...prev, [symbol]: period }));
+    ensureHistory(symbol, period);
+  }, [ensureHistory]);
+
+  const cardHistory = (symbol) =>
+    filterHistory(dailyPrices[symbol]?.rows, chartPeriods[symbol] || DEFAULT_PERIOD, new Date(), purchaseDates[symbol]);
+
+  // ── Depots bearbeiten ────────────────────────────────────────
+
+  const addStock = (input) => {
+    const symbol = normalizeSymbol(input);
+    if (!symbol) return;
     setError(null);
-    try {
-      const res = await axios.get(`${API_BASE}/price/${symbol}`);
-      const today = new Date().toISOString().split('T')[0];
-      setAccounts(prev => prev.map(a =>
-        a.id === activeAccountId && !a.watchlist.includes(symbol)
-          ? {
-              ...a,
-              watchlist: [...a.watchlist, symbol],
-              purchasePrices: { ...a.purchasePrices, [symbol]: res.data.price },
-              shareQuantities: { ...a.shareQuantities, [symbol]: 1 },
-              purchaseDates: { ...a.purchaseDates, [symbol]: today },
-            }
-          : a
-      ));
-    } catch (e) {
-      setError(`Could not find ${symbol}. Try a different symbol or Ticker (e.g. SAP.DE).`);
-    } finally {
-      setLoading(false);
-    }
+    const today = toIsoDate(new Date());
+    setAccounts(prev => prev.map(a =>
+      a.id === activeAccountId && !a.watchlist.includes(symbol)
+        ? {
+            ...a,
+            watchlist: [...a.watchlist, symbol],
+            // null = „mit dem ersten Kurs vorbelegen“ (siehe Effekt oben)
+            purchasePrices: { ...a.purchasePrices, [symbol]: Number.isFinite(stockData[symbol]?.price) ? stockData[symbol].price : null },
+            shareQuantities: { ...a.shareQuantities, [symbol]: 1 },
+            purchaseDates: { ...a.purchaseDates, [symbol]: today },
+          }
+        : a
+    ));
   };
 
   const removeStock = (symbol) => {
@@ -442,23 +390,21 @@ const App = () => {
   };
 
   const handleMoveStock = useCallback((symbol, targetAccountId) => {
+    const source = accounts.find(acc => acc.id === activeAccountId);
     setAccounts(prev => prev.map(a => {
       if (a.id === activeAccountId) {
-        return {
-          ...a,
-          watchlist: a.watchlist.filter(s => s !== symbol),
-          shareQuantities: { ...a.shareQuantities, [symbol]: undefined },
-          purchasePrices: { ...a.purchasePrices, [symbol]: undefined },
-          purchaseDates: { ...a.purchaseDates, [symbol]: undefined },
-        };
+        const { [symbol]: _q, ...shareQuantities } = a.shareQuantities;
+        const { [symbol]: _p, ...purchasePrices } = a.purchasePrices;
+        const { [symbol]: _d, ...purchaseDates } = a.purchaseDates;
+        return { ...a, watchlist: a.watchlist.filter(s => s !== symbol), shareQuantities, purchasePrices, purchaseDates };
       }
       if (a.id === targetAccountId) {
         return {
           ...a,
-          watchlist: [...a.watchlist, symbol],
-          shareQuantities: { ...a.shareQuantities, [symbol]: accounts.find(acc => acc.id === activeAccountId)?.shareQuantities?.[symbol] || 1 },
-          purchasePrices: { ...a.purchasePrices, [symbol]: accounts.find(acc => acc.id === activeAccountId)?.purchasePrices?.[symbol] || 0 },
-          purchaseDates: { ...a.purchaseDates, [symbol]: accounts.find(acc => acc.id === activeAccountId)?.purchaseDates?.[symbol] || '' },
+          watchlist: a.watchlist.includes(symbol) ? a.watchlist : [...a.watchlist, symbol],
+          shareQuantities: { ...a.shareQuantities, [symbol]: source?.shareQuantities?.[symbol] || 1 },
+          purchasePrices: { ...a.purchasePrices, [symbol]: source?.purchasePrices?.[symbol] || 0 },
+          purchaseDates: { ...a.purchaseDates, [symbol]: source?.purchaseDates?.[symbol] || '' },
         };
       }
       return a;
@@ -467,14 +413,15 @@ const App = () => {
   }, [activeAccountId, accounts]);
 
   const handleCopyStock = useCallback((symbol, targetAccountId) => {
+    const source = accounts.find(acc => acc.id === activeAccountId);
     setAccounts(prev => prev.map(a => {
       if (a.id === targetAccountId && !a.watchlist.includes(symbol)) {
         return {
           ...a,
           watchlist: [...a.watchlist, symbol],
-          shareQuantities: { ...a.shareQuantities, [symbol]: accounts.find(acc => acc.id === activeAccountId)?.shareQuantities?.[symbol] || 1 },
-          purchasePrices: { ...a.purchasePrices, [symbol]: accounts.find(acc => acc.id === activeAccountId)?.purchasePrices?.[symbol] || 0 },
-          purchaseDates: { ...a.purchaseDates, [symbol]: accounts.find(acc => acc.id === activeAccountId)?.purchaseDates?.[symbol] || '' },
+          shareQuantities: { ...a.shareQuantities, [symbol]: source?.shareQuantities?.[symbol] || 1 },
+          purchasePrices: { ...a.purchasePrices, [symbol]: source?.purchasePrices?.[symbol] || 0 },
+          purchaseDates: { ...a.purchaseDates, [symbol]: source?.purchaseDates?.[symbol] || '' },
         };
       }
       return a;
@@ -482,35 +429,20 @@ const App = () => {
     setMoveCopySymbol(null);
   }, [activeAccountId, accounts]);
 
-  const updatePurchasePrice = (symbol, price) => {
+  const updateAccountField = (field, symbol, value) => {
     setAccounts(prev => prev.map(a =>
-      a.id === activeAccountId
-        ? { ...a, purchasePrices: { ...a.purchasePrices, [symbol]: parseFloat(price) || 0 } }
-        : a
+      a.id === activeAccountId ? { ...a, [field]: { ...a[field], [symbol]: value } } : a
     ));
   };
-
-  const updateShareQuantity = (symbol, qty) => {
-    setAccounts(prev => prev.map(a =>
-      a.id === activeAccountId
-        ? { ...a, shareQuantities: { ...a.shareQuantities, [symbol]: parseInt(qty) || 0 } }
-        : a
-    ));
-  };
-
-  const updatePurchaseDate = (symbol, date) => {
-    setAccounts(prev => prev.map(a =>
-      a.id === activeAccountId
-        ? { ...a, purchaseDates: { ...a.purchaseDates, [symbol]: date || '' } }
-        : a
-    ));
-  };
+  const updatePurchasePrice = (symbol, price) => updateAccountField('purchasePrices', symbol, parseFloat(price) || 0);
+  const updateShareQuantity = (symbol, qty) => updateAccountField('shareQuantities', symbol, parseInt(qty, 10) || 0);
+  const updatePurchaseDate = (symbol, date) => updateAccountField('purchaseDates', symbol, date || '');
 
   const addAccount = () => {
     const name = window.prompt('Neues Depot anlegen:\nName:', `Depot ${accounts.length + 1}`);
     if (!name) return;
     const id = 'acc_' + Date.now();
-    setAccounts(prev => [...prev, { id, name, watchlist: [], purchasePrices: {}, shareQuantities: {}, purchaseDates: {}, oldShares: [] }]);
+    setAccounts(prev => [...prev, emptyAccount(id, name)]);
     setActiveTab(id);
   };
 
@@ -518,9 +450,7 @@ const App = () => {
     if (!activeAccount) return;
     const name = window.prompt('Depot umbenennen:', activeAccount.name);
     if (!name || name === activeAccount.name) return;
-    setAccounts(prev => prev.map(a =>
-      a.id === activeAccountId ? { ...a, name } : a
-    ));
+    setAccounts(prev => prev.map(a => a.id === activeAccountId ? { ...a, name } : a));
   };
 
   const deleteAccount = () => {
@@ -531,102 +461,79 @@ const App = () => {
     setActiveTab(remaining[0]?.id || 'default');
   };
 
-  const handleExport = () => {
-    const headers = ['DEPOT', 'TICKER', 'NAME', 'ANZAHL', 'KAUFKURS', 'DATUM'];
-    const rows = [];
-    for (const acc of accounts) {
-      for (const s of acc.watchlist) {
-        const data = stockData[s];
-        rows.push([
-          acc.name,
-          s,
-          (data?.name || '').includes(';') ? `"${data?.name || ''}"` : (data?.name || ''),
-          acc.shareQuantities?.[s] || 0,
-          acc.purchasePrices?.[s] || 0,
-          acc.purchaseDates?.[s] || ''
-        ]);
-      }
-    }
-    const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'portfolio.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  // ── Import / Export ──────────────────────────────────────────
+
+  const handleExportCsv = () => {
+    downloadFile('portfolio.csv', '﻿' + buildCsv(accounts, stockData), 'text/csv;charset=utf-8;');
   };
 
-  const handleImport = (e) => {
+  const handleImportCsv = (e) => {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const text = String(evt.target.result || '').replace(/^\uFEFF/, '');
-        const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-        if (lines.length < 2) return;
-        const header = lines[0].toUpperCase();
-        const hasDepot = header.startsWith('DEPOT');
-        const dataLines = header.includes('TICKER') ? lines.slice(1) : lines;
-
-        const depotEntries = {};
-        for (const line of dataLines) {
-          const delim = line.includes(';') ? ';' : ',';
-          const parts = line.split(delim);
-          const off = hasDepot ? 1 : 0;
-          if (parts.length >= 4 + off) {
-            const depotName = hasDepot ? parts[0].trim() : (accounts.find(a => a.id === activeAccountId)?.name || 'Depot 1');
-            const ticker = parts[off].trim().toUpperCase();
-            const qty = parseInt(parts[2 + off].trim()) || 0;
-            const price = parseFloat(parts[3 + off].trim().replace(',', '.')) || 0;
-            const date = parts[4 + off] ? parts[4 + off].trim() : '';
-            if (!ticker) continue;
-            if (!depotEntries[depotName]) depotEntries[depotName] = { watchlist: [], purchasePrices: {}, shareQuantities: {}, purchaseDates: {} };
-            if (!depotEntries[depotName].watchlist.includes(ticker)) depotEntries[depotName].watchlist.push(ticker);
-            if (qty > 0) depotEntries[depotName].shareQuantities[ticker] = qty;
-            if (price > 0) depotEntries[depotName].purchasePrices[ticker] = price;
-            if (date) depotEntries[depotName].purchaseDates[ticker] = date;
-          }
-        }
-
-        setAccounts(prev => {
-          const updated = [...prev];
-          for (const [depotName, entries] of Object.entries(depotEntries)) {
-            const existing = updated.find(a => a.name === depotName);
-            if (existing) {
-              const idx = updated.indexOf(existing);
-              updated[idx] = {
-                ...existing,
-                watchlist: [...new Set([...existing.watchlist, ...entries.watchlist])],
-                purchasePrices: { ...existing.purchasePrices, ...entries.purchasePrices },
-                shareQuantities: { ...existing.shareQuantities, ...entries.shareQuantities },
-                purchaseDates: { ...existing.purchaseDates, ...entries.purchaseDates },
-              };
-            } else {
-              updated.push({
-                id: 'acc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-                name: depotName,
-                watchlist: entries.watchlist,
-                purchasePrices: entries.purchasePrices,
-                shareQuantities: entries.shareQuantities,
-                purchaseDates: entries.purchaseDates,
-                oldShares: [],
-              });
-            }
-          }
-          return updated;
-        });
+        const entries = parseCsv(String(evt.target.result || ''), activeAccount?.name || 'Depot 1');
+        setAccounts(prev => mergeCsvIntoAccounts(prev, entries));
       } catch (err) {
         console.error('CSV-Import fehlgeschlagen:', err);
         setError('CSV-Import fehlgeschlagen: Datei konnte nicht gelesen werden.');
       }
     };
     reader.readAsText(file);
-    e.target.value = '';
   };
+
+  const settingsSnapshot = () => ({ colorSettings, viewMode, fontScale, fontFamily, refreshInterval });
+
+  const handleExportBackup = () => {
+    const backup = buildBackup({ accounts, settings: settingsSnapshot() });
+    downloadFile(`stock-dashboard-${toIsoDate(new Date())}.json`, JSON.stringify(backup, null, 2), 'application/json');
+    const now = new Date().toISOString();
+    setLastBackupAt(now);
+    safeSetItem('lastBackupAt', now);
+  };
+
+  const handleImportBackup = (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = parseBackup(evt.target.result);
+        if (!window.confirm(`Sicherung mit ${data.accounts.length} Depot(s) einspielen? Die Depots auf diesem Gerät werden ersetzt.`)) return;
+        setAccounts(data.accounts);
+        setActiveTab(data.accounts[0].id);
+        const s = data.settings;
+        if (s.colorSettings) setColorSettings(prev => ({ ...prev, ...s.colorSettings }));
+        if (s.viewMode === 'cards' || s.viewMode === 'table') setViewMode(s.viewMode);
+        if (Number.isFinite(s.fontScale)) setFontScale(s.fontScale);
+        if (typeof s.fontFamily === 'string') setFontFamily(s.fontFamily);
+        if (Number.isFinite(s.refreshInterval)) setRefreshInterval(Math.min(3600, Math.max(60, s.refreshInterval)));
+        setError(null);
+      } catch (err) {
+        setError(err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const showBackupReminder = allWatchlistSymbols.length > 0
+    && Date.now() > reminderSnoozedUntil
+    && (!lastBackupAt || Date.now() - new Date(lastBackupAt).getTime() > BACKUP_REMINDER_DAYS * DAY_MS);
+
+  const snoozeReminder = () => {
+    const until = Date.now() + 7 * DAY_MS;
+    setReminderSnoozedUntil(until);
+    safeSetItem('backupReminderSnoozedUntil', String(until));
+  };
+
+  const handleSignOut = async () => {
+    await client.auth.signOut();
+  };
+
+  // ── Anzeige ──────────────────────────────────────────────────
 
   const portfolioSummary = useMemo(() => {
     let totalBuy = 0;
@@ -643,16 +550,22 @@ const App = () => {
     return { totalBuy, totalCurrent, pl, plPct };
   }, [stocks, stockData, purchasePrices, shareQuantities]);
 
+  const newestFetch = useMemo(() => {
+    const times = allWatchlistSymbols.map(s => stockData[s]?.fetched_at).filter(Boolean).sort();
+    return times.at(-1) || null;
+  }, [allWatchlistSymbols, stockData]);
+  const pendingCount = allWatchlistSymbols.filter(s => stockData[s]?.status === 'pending' || !stockData[s]).length;
+  const unknownSymbols = allWatchlistSymbols.filter(s => stockData[s]?.status === 'unknown');
+
+  const iconButton = 'text-muted hover:text-white p-2 transition-colors border border-accent rounded';
+
   return (
-    <div className="w-full px-4 py-4 md:px-6 md:py-6">
+    <div className="w-full px-4 py-4 md:px-6 md:py-6 safe-area">
       <header className="mb-4 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-end">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tighter uppercase">Stock Dashboard (dk) {APP_VERSION}</h1>
+          <h1 className="text-2xl font-bold tracking-tighter uppercase">Stock Dashboard {APP_VERSION}</h1>
         </div>
         <div className="text-right">
-          <div className="text-xs-mono text-muted mb-1">
-            {new Date().toLocaleDateString()} | {new Date().toLocaleTimeString()}
-          </div>
           <div className="text-sm-mono">
             <span className="text-muted">Port:</span>{' '}
             <span className={portfolioSummary.pl >= 0 ? 'text-pos' : 'text-neg'}>
@@ -663,12 +576,24 @@ const App = () => {
         </div>
       </header>
 
+      {showBackupReminder && (
+        <div className="border border-accent rounded p-2 mb-4 text-xs-mono flex flex-wrap items-center gap-2">
+          <ShieldAlert size={14} className="text-accent" />
+          <span className="flex-1 min-w-[12rem]">
+            Deine Depots liegen nur auf diesem Gerät.{' '}
+            {lastBackupAt ? `Letzte Sicherung vor über ${BACKUP_REMINDER_DAYS} Tagen.` : 'Es gibt noch keine Sicherung.'}
+          </span>
+          <button onClick={handleExportBackup} className="border border-accent bg-accent text-white px-2 py-1 rounded">Jetzt sichern</button>
+          <button onClick={snoozeReminder} className="text-muted hover:text-white px-2 py-1">Später</button>
+        </div>
+      )}
+
       <div className="flex items-center gap-1 border border-accent rounded p-1 mb-4 overflow-x-auto">
         {accounts.map(a => (
           <button
             key={a.id}
             onClick={() => setActiveTab(a.id)}
-            className={`text-xs-mono px-3 py-1.5 uppercase transition-colors whitespace-nowrap ${activeTab === a.id ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
+            className={`text-xs-mono px-3 py-1.5 uppercase transition-colors whitespace-nowrap ${activeAccountId === a.id ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
           >
             {a.name}
           </button>
@@ -692,7 +617,7 @@ const App = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="flex border border-accent rounded">
           <button
             onClick={() => setViewMode('cards')}
@@ -709,99 +634,35 @@ const App = () => {
             <Table size={16} />
           </button>
         </div>
-        <AddStock onAdd={addStock} className="flex-1" />
-        <button
-          onClick={handleRefreshDatabase}
-          disabled={refreshingDb || !dbConfig.connected || !dbConfig.enabled || allWatchlistSymbols.length === 0}
-          className="text-muted hover:text-white p-2 transition-colors border border-accent rounded disabled:opacity-40"
-          title="Supabase mit yfinance-Daten aktualisieren"
-        >
-          <RefreshCw size={16} className={refreshingDb ? 'animate-spin' : ''} />
+        <AddStock onAdd={addStock} className="flex-1 min-w-[14rem]" />
+        <button onClick={loadSnapshot} disabled={loadingData} className={`${iconButton} disabled:opacity-40`} title="Kurse neu laden">
+          <RefreshCw size={16} className={loadingData ? 'animate-spin' : ''} />
         </button>
-        <button
-          onClick={handleToggleOffline}
-          disabled={!dbConfig.connected || !dbConfig.enabled}
-          className={`p-2 transition-colors border border-accent rounded disabled:opacity-40 ${dbConfig.offline ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
-          title={dbConfig.offline ? 'Offline-Modus aktiv: nur Supabase' : 'Online-Modus: Cache + yfinance'}
-        >
-          <Power size={16} />
-        </button>
-        <button
-          onClick={handleExport}
-          className="text-muted hover:text-white p-2 transition-colors border border-accent rounded"
-          title="Export CSV"
-        >
+        <button onClick={handleExportCsv} className={iconButton} title="Export CSV">
           <Download size={16} />
         </button>
         {viewMode === 'table' && (
-          <button
-            onClick={() => window.print()}
-            className="text-muted hover:text-white p-2 transition-colors border border-accent rounded no-print"
-            title="Drucken (A4)"
-          >
+          <button onClick={() => window.print()} className={`${iconButton} no-print`} title="Drucken (A4)">
             <Printer size={16} />
           </button>
         )}
-        <label className="text-muted hover:text-white p-2 transition-colors border border-accent rounded cursor-pointer" title="Import CSV">
+        <label className={`${iconButton} cursor-pointer`} title="Import CSV">
           <Upload size={16} />
-          <input type="file" accept=".csv" onChange={handleImport} className="hidden" />
+          <input type="file" accept=".csv,text/csv" onChange={handleImportCsv} className="hidden" />
         </label>
-        <button
-          onClick={() => setShowSettings(true)}
-          className="text-muted hover:text-white p-2 transition-colors border border-accent rounded"
-          title="Einstellungen"
-        >
+        <button onClick={() => setShowSettings(true)} className={iconButton} title="Einstellungen">
           <SettingsIcon size={16} />
         </button>
       </div>
-      <div className="border border-accent rounded p-2 mb-4 text-xs-mono text-muted flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-1 text-white"><Database size={13} /> Supabase</span>
-          <span className={dbConfig.connected ? 'text-pos' : 'text-neg'}>{dbConfig.connected ? 'verbunden' : 'nicht verbunden'}</span>
-          <span>{dbConfig.enabled ? 'Cache aktiv' : 'Cache aus'}</span>
-          <span className={dbConfig.offline ? 'text-accent' : 'text-muted'}>{dbConfig.offline ? 'OFFLINE: nur Datenbank' : 'ONLINE: yfinance erlaubt'}</span>
-          <span>{cacheSummary.total_keys || 0} gespeicherte Cache-Einträge</span>
-          {cacheSummary.total_keys ? (
-            <span className={cacheSummary.stale_all ? 'text-yellow-400' : 'text-pos'}>
-              zuletzt aktualisiert {formatCacheAge(cacheSummary.last_fetched_at)}
-            </span>
-          ) : null}
-          {refreshingDb && (
-            <span className="text-accent animate-pulse">
-              {refreshProgress.done} von {refreshProgress.total} geladen{refreshProgress.current ? ` · ${refreshProgress.current}` : ''}
-            </span>
-          )}
-          <button
-            onClick={() => setCachePanelOpen(prev => !prev)}
-            className="ml-auto border border-accent px-2 py-1 rounded text-muted hover:text-white transition-colors"
-            title={cachePanelOpen ? 'Datenbank-Fenster minimieren' : 'Datenbank-Fenster anzeigen'}
-          >
-            {cachePanelOpen ? 'Minimieren' : 'Anzeigen'}
-          </button>
-        </div>
-        {cachePanelOpen && allWatchlistSymbols.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {allWatchlistSymbols.map(symbol => {
-              const item = cacheSummary.items?.[symbol];
-              const types = item?.types || {};
-              const typeText = Object.entries(types).map(([k, v]) => `${k}:${v}`).join(' · ');
-              const age = formatCacheAge(item?.last_fetched_at);
-              const isStale = !!(item?.last_fetched_at && (Date.now() / 1000 - item.last_fetched_at) > (dbConfig.ttl || 3600));
-              return (
-                <span key={symbol} className="border border-accent px-2 py-1 rounded">
-                  <span className="text-white">{symbol}</span>{' '}
-                  {item
-                    ? <>{item.keys.length} Einträge ({typeText}) · <span className={isStale ? 'text-yellow-400' : 'text-pos'}>{age}</span></>
-                    : <span className="text-neg">noch nicht gespeichert</span>}
-                </span>
-              );
-            })}
-          </div>
-        )}
+
+      <div className="text-xs-mono text-muted mb-4 flex flex-wrap gap-x-3 gap-y-1">
+        <span>{formatFetchedAt(newestFetch) || 'Noch keine Kurse in der Datenbank'}</span>
+        {lastLoadedAt && <span>geladen {lastLoadedAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>}
+        {pendingCount > 0 && <span className="text-accent">{pendingCount} Ticker warten auf den ersten Abruf</span>}
+        {unknownSymbols.length > 0 && <span className="text-neg">unbekannt: {unknownSymbols.join(', ')}</span>}
       </div>
 
       {error && <p className="text-neg text-xs-mono mb-4">{error}</p>}
-      {loading && <p className="text-muted text-xs-mono mb-4 animate-pulse">Verifying symbol...</p>}
 
       {viewMode === 'cards' && (
         <div className="flex gap-2 mb-4 flex-wrap">
@@ -830,14 +691,14 @@ const App = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-1">
           {stocks.length === 0 && (
             <div className="col-span-full text-center p-10 border border-dashed border-accent text-muted text-xs-mono">
-              WATCHLIST EMPTY. ADD SYMBOLS ABOVE.
+              DEPOT LEER. OBEN EINEN TICKER HINZUFÜGEN ODER EINE SICHERUNG EINSPIELEN.
             </div>
           )}
           {sortedStocks.map(symbol => (
             <StockCard
               key={symbol}
-              stock={stockData[symbol] || { symbol, price: '...', change: 0, change_percent: 0, currency: '...' }}
-              history={historyData[symbol] || []}
+              stock={{ symbol, ...(stockData[symbol] || { status: 'pending' }) }}
+              history={cardHistory(symbol)}
               stats={statsData[symbol] || { performance: {} }}
               purchasePrice={purchasePrices[symbol] || 0}
               shareQuantity={shareQuantities[symbol] || 0}
@@ -846,7 +707,7 @@ const App = () => {
               onUpdateShareQuantity={updateShareQuantity}
               onUpdatePurchaseDate={updatePurchaseDate}
               onRemove={removeStock}
-              onPeriodChange={(s, p, d) => fetchSpecificHistory(s, p, d)}
+              onPeriodChange={handlePeriodChange}
               onShowDetail={setDetailSymbol}
               onMoveCopy={setMoveCopySymbol}
               accounts={accounts}
@@ -941,18 +802,10 @@ const App = () => {
                       {entry.removedAt ? new Date(entry.removedAt).toLocaleDateString() : '-'}
                     </td>
                     <td className="p-2 text-center whitespace-nowrap">
-                      <button
-                        onClick={() => restoreOldShare(entry)}
-                        className="text-muted hover:text-pos transition-colors mr-2"
-                        title="Reaktivieren"
-                      >
+                      <button onClick={() => restoreOldShare(entry)} className="text-muted hover:text-pos transition-colors mr-2" title="Reaktivieren">
                         <ArrowUp size={12} />
                       </button>
-                      <button
-                        onClick={() => deleteOldShare(entry.id)}
-                        className="text-muted hover:text-neg transition-colors"
-                        title="Endgültig löschen"
-                      >
+                      <button onClick={() => deleteOldShare(entry.id)} className="text-muted hover:text-neg transition-colors" title="Endgültig löschen">
                         <Trash2 size={12} />
                       </button>
                     </td>
@@ -969,9 +822,11 @@ const App = () => {
           colors={colorSettings}
           onChange={setColorSettings}
           onClose={() => setShowSettings(false)}
-          dbConfig={dbConfig}
-          onDbConfig={setDbConfig}
-          API_BASE={API_BASE}
+          email={session?.user?.email}
+          onSignOut={handleSignOut}
+          onExportBackup={handleExportBackup}
+          onImportFile={handleImportBackup}
+          lastBackupAt={lastBackupAt}
           fontScale={fontScale}
           onFontScaleChange={setFontScale}
           fontFamily={fontFamily}
@@ -984,9 +839,11 @@ const App = () => {
       {detailSymbol && (
         <StockDetail
           symbol={detailSymbol}
+          client={client}
           stockData={stockData}
-          historyData={historyData}
+          dailyRows={dailyPrices[detailSymbol]?.rows || []}
           statsData={statsData}
+          onEnsureHistory={ensureHistory}
           purchasePrice={purchasePrices[detailSymbol] || 0}
           shareQuantity={shareQuantities[detailSymbol] || 0}
           purchaseDate={purchaseDates[detailSymbol] || ''}
@@ -996,6 +853,10 @@ const App = () => {
           onClose={() => setDetailSymbol(null)}
         />
       )}
+
+      <footer className="mt-8 text-[0.7rem] text-muted text-center no-print">
+        Kurse von Yahoo Finance, ca. 15 min verzögert, Aktualisierung alle 30 min (Mo–Fr). Depotdaten bleiben auf diesem Gerät.
+      </footer>
     </div>
   );
 };
