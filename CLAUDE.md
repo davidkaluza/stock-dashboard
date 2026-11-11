@@ -22,7 +22,7 @@ Jeder yfinance-Endpoint folgt demselben Ablauf — neue Endpoints sollten ihn ü
 
 Alle Cache-Funktionen sind No-Ops, wenn die Datenbank nicht verbunden oder deaktiviert ist — die App läuft ohne DB voll weiter. `POST /db/refresh` schaltet den Offline-Modus temporär ab, löscht die betroffenen Cache-Keys und ruft die Endpoint-Funktionen direkt auf (`await get_price(...)` usw.; detail/news/history nur über Flags im Request-Body). Neue Datentypen dort ergänzen, wenn sie offline verfügbar sein sollen.
 
-Der DB-Zustand liegt in Modul-Globals (`_db_conn` — eine einzelne psycopg-Verbindung mit autocommit —, `_cache_ttl`, `_cache_enabled`, `_offline_mode`), gesetzt von `connect_db()` beim Start und bei `POST /db/config`. Alle SQL-Zugriffe laufen über `_cache_execute`, das bei abgebrochener Verbindung einmal neu verbindet; `jsonb` verträgt kein NaN, daher `clean_nans` vor dem Speichern.
+Der DB-Zustand liegt in Modul-Globals (`_cache_backend`, `_cache_ttl`, `_cache_enabled`, `_offline_mode`), gesetzt von `connect_db()` beim Start und bei `POST /db/config`. `_cache_backend` ist eine `PostgresCache`- (eine psycopg-Verbindung mit autocommit) oder `MongoCache`-Instanz mit derselben Schnittstelle `get`/`set`/`delete`/`list_meta`; welche, bestimmt `DbConfig.backend`. `cache_get`/`cache_set`/`cache_delete` rufen sie über `_cache_call` auf, das bei abgebrochener Postgres-Verbindung einmal neu verbindet. Neue Cache-Operationen in **beiden** Klassen implementieren. `jsonb` verträgt kein NaN, daher `clean_nans` vor dem Speichern (für beide Backends).
 
 Das statische Frontend wird am Dateiende auf `/` gemountet — neue Routen müssen **vor** diesem `app.mount` definiert werden, sonst fängt der StaticFiles-Mount sie ab.
 

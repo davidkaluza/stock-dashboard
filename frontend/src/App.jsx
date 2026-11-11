@@ -4,7 +4,7 @@ import StockCard from './components/StockCard';
 import AddStock from './components/AddStock';
 import TableView from './components/TableView';
 import StockDetail from './components/StockDetail';
-import Settings from './components/Settings';
+import Settings, { DB_BACKEND_LABELS } from './components/Settings';
 import { LayoutGrid, Table, Download, Upload, Printer, Plus, Trash2, Pencil, Settings as SettingsIcon, ArrowUp, ArrowDown, ArrowLeftRight, Copy, X, Database, RefreshCw, Power } from 'lucide-react';
 
 const APP_VERSION = '0.1.0';
@@ -74,7 +74,8 @@ const App = () => {
       ...base,
     };
   });
-  const [dbConfig, setDbConfig] = useState({ uri: '', ttl: 3600, enabled: false, offline: false, connected: false });
+  const [dbConfig, setDbConfig] = useState({ backend: 'postgres', postgres_uri: '', mongo_uri: '', ttl: 3600, enabled: false, offline: false, connected: false });
+  const dbLabel = DB_BACKEND_LABELS[dbConfig.backend] || 'Datenbank';
   const [cacheSummary, setCacheSummary] = useState({ items: {}, total_keys: 0 });
   const [cachePanelOpen, setCachePanelOpen] = useState(() => localStorage.getItem('cachePanelOpen') === 'true');
   const [refreshingDb, setRefreshingDb] = useState(false);
@@ -231,7 +232,9 @@ const App = () => {
   const saveDbConfig = async (patch) => {
     const next = { ...dbConfig, ...patch };
     const payload = {
-      uri: next.uri || '',
+      backend: next.backend || 'postgres',
+      postgres_uri: next.postgres_uri || '',
+      mongo_uri: next.mongo_uri || '',
       ttl: Number(next.ttl) || 3600,
       enabled: Boolean(next.enabled),
       offline: Boolean(next.offline),
@@ -300,7 +303,7 @@ const App = () => {
         await saveDbConfig({ offline: true });
       }
     } catch (e) {
-      setError('Datenbank-Aktualisierung fehlgeschlagen. Prüfe Supabase, Internet und yfinance.');
+      setError(`Datenbank-Aktualisierung fehlgeschlagen. Prüfe ${dbLabel}, Internet und yfinance.`);
       if (wasOffline) {
         try { await saveDbConfig({ offline: true }); } catch (restoreError) { console.error(restoreError); }
       }
@@ -714,7 +717,7 @@ const App = () => {
           onClick={handleRefreshDatabase}
           disabled={refreshingDb || !dbConfig.connected || !dbConfig.enabled || allWatchlistSymbols.length === 0}
           className="text-muted hover:text-white p-2 transition-colors border border-accent rounded disabled:opacity-40"
-          title="Supabase mit yfinance-Daten aktualisieren"
+          title={`${dbLabel} mit yfinance-Daten aktualisieren`}
         >
           <RefreshCw size={16} className={refreshingDb ? 'animate-spin' : ''} />
         </button>
@@ -722,7 +725,7 @@ const App = () => {
           onClick={handleToggleOffline}
           disabled={!dbConfig.connected || !dbConfig.enabled}
           className={`p-2 transition-colors border border-accent rounded disabled:opacity-40 ${dbConfig.offline ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
-          title={dbConfig.offline ? 'Offline-Modus aktiv: nur Supabase' : 'Online-Modus: Cache + yfinance'}
+          title={dbConfig.offline ? `Offline-Modus aktiv: nur ${dbLabel}` : 'Online-Modus: Cache + yfinance'}
         >
           <Power size={16} />
         </button>
@@ -756,7 +759,7 @@ const App = () => {
       </div>
       <div className="border border-accent rounded p-2 mb-4 text-xs-mono text-muted flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-1 text-white"><Database size={13} /> Supabase</span>
+          <span className="inline-flex items-center gap-1 text-white"><Database size={13} /> {dbLabel}</span>
           <span className={dbConfig.connected ? 'text-pos' : 'text-neg'}>{dbConfig.connected ? 'verbunden' : 'nicht verbunden'}</span>
           <span>{dbConfig.enabled ? 'Cache aktiv' : 'Cache aus'}</span>
           <span className={dbConfig.offline ? 'text-accent' : 'text-muted'}>{dbConfig.offline ? 'OFFLINE: nur Datenbank' : 'ONLINE: yfinance erlaubt'}</span>

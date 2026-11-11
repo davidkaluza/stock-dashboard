@@ -55,11 +55,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Supabase/PostgreSQL (optionale Caching-DB) ──────────────────
+# ── Caching-DB (optional): Supabase/PostgreSQL oder MongoDB ─────
 
 DB_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "db_config.json")
 
-_db_conn = None
+BACKEND_POSTGRES = "postgres"
+BACKEND_MONGO = "mongodb"
+BACKEND_LABELS = {BACKEND_POSTGRES: "Supabase", BACKEND_MONGO: "MongoDB"}
+
+_cache_backend = None  # PostgresCache | MongoCache | None
 _last_connect_attempt = 0.0
 RECONNECT_INTERVAL = 30  # s; avoids a connect timeout on every request while the DB is down
 _cache_ttl = 3600  # default 1h
@@ -77,11 +81,115 @@ CREATE TABLE IF NOT EXISTS stock_cache (
 """
 
 
+class PostgresCache:
+    """Cache in einer PostgreSQL-Tabelle (z. B. Supabase Session pooler)."""
+
+    name = BACKEND_POSTGRES
+
+    def __init__(self, uri: str):
+        import psycopg
+        # prepare_threshold=None: works with Supabase session and transaction pooler
+        self.conn = psycopg.connect(uri, autocommit=True, connect_timeout=5, prepare_threshold=None)
+        self.conn.execute(CACHE_TABLE_SQL)
+
+    def connected(self) -> bool:
+        return self.conn is not None and not self.conn.closed
+
+    def close(self):
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def is_connection_error(exc: Exception) -> bool:
+        import psycopg
+        return isinstance(exc, psycopg.OperationalError)
+
+    def get(self, key: str):
+        row = self.conn.execute(
+            "SELECT data, fetched_at, fetched_at_iso FROM stock_cache WHERE key = %s", (key,)
+        ).fetchone()
+        return tuple(row) if row else None
+
+    def set(self, key: str, data: dict, fetched_at: float, fetched_at_iso: str, cache_type: str):
+        from psycopg.types.json import Jsonb
+        self.conn.execute(
+            """
+            INSERT INTO stock_cache (key, data, fetched_at, fetched_at_iso, cache_type)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (key) DO UPDATE SET
+                data = EXCLUDED.data,
+                fetched_at = EXCLUDED.fetched_at,
+                fetched_at_iso = EXCLUDED.fetched_at_iso,
+                cache_type = EXCLUDED.cache_type
+            """,
+            (key, Jsonb(data), fetched_at, fetched_at_iso, cache_type),
+        )
+
+    def delete(self, key: str):
+        self.conn.execute("DELETE FROM stock_cache WHERE key = %s", (key,))
+
+    def list_meta(self, limit: int):
+        return [tuple(r) for r in self.conn.execute(
+            "SELECT key, fetched_at, fetched_at_iso FROM stock_cache ORDER BY fetched_at DESC LIMIT %s", (limit,)
+        ).fetchall()]
+
+
+class MongoCache:
+    """Cache in der Collection `stock_cache` (z. B. lokaler MongoDB-Server)."""
+
+    name = BACKEND_MONGO
+
+    def __init__(self, uri: str):
+        import pymongo
+        self.client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=3000)
+        self.client.admin.command("ping")
+        # Datenbankname aus der URI (…/stock_dashboard_2), sonst Standardname
+        self.coll = self.client.get_default_database("stock_dashboard").stock_cache
+
+    def connected(self) -> bool:
+        return self.client is not None  # pymongo verbindet selbst neu
+
+    def close(self):
+        try:
+            self.client.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def is_connection_error(exc: Exception) -> bool:
+        return False
+
+    def get(self, key: str):
+        doc = self.coll.find_one({"_id": key})
+        if not doc:
+            return None
+        return doc.get("data"), doc.get("fetched_at", 0), doc.get("fetched_at_iso")
+
+    def set(self, key: str, data: dict, fetched_at: float, fetched_at_iso: str, cache_type: str):
+        self.coll.update_one(
+            {"_id": key},
+            {"$set": {"data": data, "fetched_at": fetched_at, "fetched_at_iso": fetched_at_iso, "cache_type": cache_type}},
+            upsert=True,
+        )
+
+    def delete(self, key: str):
+        self.coll.delete_one({"_id": key})
+
+    def list_meta(self, limit: int):
+        docs = self.coll.find({}, {"_id": 1, "fetched_at": 1, "fetched_at_iso": 1}).sort("fetched_at", -1).limit(limit)
+        return [(d.get("_id", ""), d.get("fetched_at", 0), d.get("fetched_at_iso")) for d in docs]
+
+
 class DbConfig(BaseModel):
-    uri: str = ""
+    backend: str = BACKEND_POSTGRES  # "postgres" | "mongodb"
+    postgres_uri: str = ""
+    mongo_uri: str = ""
     ttl: int = 3600
     enabled: bool = False
     offline: bool = False
+    uri: str = ""  # Altformat (eine URI); wird beim Laden auf postgres_uri/mongo_uri verteilt
 
 
 class CacheRefreshRequest(BaseModel):
@@ -91,12 +199,37 @@ class CacheRefreshRequest(BaseModel):
     include_news: bool = True
 
 
+def detect_backend(uri: str) -> str:
+    return BACKEND_MONGO if uri.strip().lower().startswith("mongodb") else BACKEND_POSTGRES
+
+
+def normalize_db_config(cfg: DbConfig) -> DbConfig:
+    """Altformat `uri` übernehmen und `backend` auf einen gültigen Wert setzen."""
+    if cfg.uri:
+        cfg.backend = detect_backend(cfg.uri)
+        if cfg.backend == BACKEND_MONGO:
+            cfg.mongo_uri = cfg.uri
+        else:
+            cfg.postgres_uri = cfg.uri
+        cfg.uri = ""
+    if cfg.backend not in BACKEND_LABELS:
+        cfg.backend = BACKEND_POSTGRES
+    return cfg
+
+
+def active_uri(cfg: DbConfig) -> str:
+    return cfg.mongo_uri if cfg.backend == BACKEND_MONGO else cfg.postgres_uri
+
+
+def _env_flag(name: str, default: str) -> bool:
+    return os.getenv(name, default).lower() in {"1", "true", "yes", "on"}
+
+
 def load_db_config() -> DbConfig:
     """Load database settings. Environment variables win over the JSON file.
 
-    DATABASE_URL is a PostgreSQL URI, e.g. the Supabase "Session pooler"
-    connection string. For a local run, db_config.json or Settings in the UI
-    can still be used.
+    DATABASE_URL is a PostgreSQL URI (e.g. Supabase "Session pooler"), MONGO_URI
+    a MongoDB URI. DB_BACKEND (postgres|mongodb) picks one if both are set.
     """
     cfg = DbConfig()
     try:
@@ -104,58 +237,72 @@ def load_db_config() -> DbConfig:
             cfg = DbConfig(**json.load(f))
     except Exception:
         pass
+    cfg = normalize_db_config(cfg)
 
-    env_uri = os.getenv("DATABASE_URL")
-    if env_uri:
-        cfg.uri = env_uri
-        cfg.enabled = os.getenv("DB_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    env_pg = os.getenv("DATABASE_URL")
+    env_mongo = os.getenv("MONGO_URI")
+    if env_pg:
+        cfg.postgres_uri = env_pg
+    if env_mongo:
+        cfg.mongo_uri = env_mongo
+    if env_pg or env_mongo:
+        cfg.backend = BACKEND_MONGO if env_mongo and not env_pg else BACKEND_POSTGRES
+        cfg.enabled = _env_flag("DB_ENABLED", "true")
+    env_backend = os.getenv("DB_BACKEND", "").strip().lower()
+    if env_backend in BACKEND_LABELS:
+        cfg.backend = env_backend
     env_ttl = os.getenv("CACHE_TTL")
     if env_ttl:
         try:
             cfg.ttl = int(env_ttl)
         except ValueError:
             pass
-    env_offline = os.getenv("OFFLINE_MODE")
-    if env_offline is not None:
-        cfg.offline = env_offline.lower() in {"1", "true", "yes", "on"}
+    if os.getenv("OFFLINE_MODE") is not None:
+        cfg.offline = _env_flag("OFFLINE_MODE", "false")
     return cfg
 
 
 def save_db_config(cfg: DbConfig):
     with open(DB_CONFIG_PATH, "w") as f:
-        json.dump({"uri": cfg.uri, "ttl": cfg.ttl, "enabled": cfg.enabled, "offline": cfg.offline}, f)
+        json.dump({
+            "backend": cfg.backend,
+            "postgres_uri": cfg.postgres_uri,
+            "mongo_uri": cfg.mongo_uri,
+            "ttl": cfg.ttl,
+            "enabled": cfg.enabled,
+            "offline": cfg.offline,
+        }, f)
 
 
 def _close_db():
-    global _db_conn
-    if _db_conn is not None:
-        try:
-            _db_conn.close()
-        except Exception:
-            pass
-    _db_conn = None
+    global _cache_backend
+    if _cache_backend is not None:
+        _cache_backend.close()
+    _cache_backend = None
 
 
 def connect_db(cfg: DbConfig):
-    global _db_conn, _cache_ttl, _cache_enabled, _offline_mode, _last_connect_attempt
+    global _cache_backend, _cache_ttl, _cache_enabled, _offline_mode, _last_connect_attempt
     _last_connect_attempt = time.time()
     _cache_enabled = cfg.enabled
     _offline_mode = cfg.offline
     _close_db()
-    if not cfg.uri:
+    uri = active_uri(cfg)
+    if not uri:
         return
     try:
-        import psycopg
-        # prepare_threshold=None: works with Supabase session and transaction pooler
-        _db_conn = psycopg.connect(cfg.uri, autocommit=True, connect_timeout=5, prepare_threshold=None)
-        _db_conn.execute(CACHE_TABLE_SQL)
+        _cache_backend = MongoCache(uri) if cfg.backend == BACKEND_MONGO else PostgresCache(uri)
         _cache_ttl = cfg.ttl
     except Exception:
         _close_db()
 
 
 def db_connected() -> bool:
-    return _db_conn is not None and not _db_conn.closed
+    return _cache_backend is not None and _cache_backend.connected()
+
+
+def db_backend_name() -> str:
+    return _cache_backend.name if _cache_backend is not None else load_db_config().backend
 
 
 def ensure_db_connected() -> bool:
@@ -165,36 +312,28 @@ def ensure_db_connected() -> bool:
     if time.time() - _last_connect_attempt < RECONNECT_INTERVAL:
         return False
     cfg = load_db_config()
-    if cfg.uri and cfg.enabled:
+    if active_uri(cfg) and cfg.enabled:
         connect_db(cfg)
     return db_connected()
 
 
-def cache_conn():
-    if not _cache_enabled or not ensure_db_connected():
-        return None
-    return _db_conn
-
-
-def _cache_execute(sql: str, params: tuple = ()):
-    """Run a statement; on a broken connection reconnect once and retry."""
-    import psycopg
+def _cache_call(method: str, *args):
+    """Call a backend method; on a broken connection reconnect once and retry."""
     for attempt in range(2):
-        conn = cache_conn()
-        if conn is None:
+        if not _cache_enabled or not ensure_db_connected():
             return None
+        backend = _cache_backend
         try:
-            return conn.execute(sql, params)
-        except psycopg.OperationalError:
-            _close_db()
-            if attempt:
+            return getattr(backend, method)(*args)
+        except Exception as e:
+            if attempt or not backend.is_connection_error(e):
                 raise
+            _close_db()
 
 
 def cache_get(key: str, allow_stale: Optional[bool] = None) -> Optional[dict]:
     try:
-        cur = _cache_execute("SELECT data, fetched_at, fetched_at_iso FROM stock_cache WHERE key = %s", (key,))
-        row = cur.fetchone() if cur else None
+        row = _cache_call("get", key)
         if not row:
             return None
         data, fetched_at, fetched_at_iso = row
@@ -217,26 +356,15 @@ def cache_get(key: str, allow_stale: Optional[bool] = None) -> Optional[dict]:
 
 def cache_set(key: str, data: dict):
     try:
-        from psycopg.types.json import Jsonb
         now = time.time()
-        _cache_execute(
-            """
-            INSERT INTO stock_cache (key, data, fetched_at, fetched_at_iso, cache_type)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (key) DO UPDATE SET
-                data = EXCLUDED.data,
-                fetched_at = EXCLUDED.fetched_at,
-                fetched_at_iso = EXCLUDED.fetched_at_iso,
-                cache_type = EXCLUDED.cache_type
-            """,
-            (
-                key,
-                # jsonb rejects NaN/Inf, so clean like the JSON responses
-                Jsonb(clean_nans(data)),
-                now,
-                pd.Timestamp.fromtimestamp(now, tz="UTC").isoformat(),
-                key.split("_", 1)[0],
-            ),
+        _cache_call(
+            "set",
+            key,
+            # jsonb rejects NaN/Inf, so clean like the JSON responses
+            clean_nans(data),
+            now,
+            pd.Timestamp.fromtimestamp(now, tz="UTC").isoformat(),
+            key.split("_", 1)[0],
         )
     except Exception:
         pass
@@ -244,7 +372,7 @@ def cache_set(key: str, data: dict):
 
 def cache_delete(key: str):
     try:
-        _cache_execute("DELETE FROM stock_cache WHERE key = %s", (key,))
+        _cache_call("delete", key)
     except Exception:
         pass
 
@@ -259,40 +387,53 @@ def raise_if_offline_without_cache(symbol: str):
 
 # connect on startup if config exists
 _startup_cfg = load_db_config()
-if _startup_cfg.uri:
+if active_uri(_startup_cfg):
     connect_db(_startup_cfg)
+
+
+def _db_state() -> Dict[str, Any]:
+    return {"connected": db_connected(), "backend": db_backend_name(), "enabled": _cache_enabled, "offline": _offline_mode}
 
 
 @app.get("/db/status")
 async def db_status():
     ensure_db_connected()
-    return {"connected": db_connected(), "ttl": _cache_ttl, "enabled": _cache_enabled, "offline": _offline_mode}
+    return {**_db_state(), "ttl": _cache_ttl}
 
 
 @app.post("/db/config")
 async def db_configure(cfg: DbConfig):
+    cfg = normalize_db_config(cfg)
     save_db_config(cfg)
     connect_db(cfg)
-    return {"connected": db_connected(), "enabled": cfg.enabled, "offline": cfg.offline}
+    return {**_db_state(), "backend": cfg.backend, "enabled": cfg.enabled, "offline": cfg.offline}
 
 
 @app.get("/db/config")
 async def db_get_config():
     ensure_db_connected()
     cfg = load_db_config()
-    return {"uri": cfg.uri, "ttl": cfg.ttl, "enabled": cfg.enabled, "offline": cfg.offline, "connected": db_connected()}
+    return {
+        "backend": cfg.backend,
+        "postgres_uri": cfg.postgres_uri,
+        "mongo_uri": cfg.mongo_uri,
+        "uri": active_uri(cfg),
+        "ttl": cfg.ttl,
+        "enabled": cfg.enabled,
+        "offline": cfg.offline,
+        "connected": db_connected(),
+    }
 
 
 @app.get("/db/cache/summary")
 async def db_cache_summary(symbols: str = ""):
     requested = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     try:
-        cur = _cache_execute("SELECT key, fetched_at, fetched_at_iso FROM stock_cache ORDER BY fetched_at DESC LIMIT 2000")
+        rows = _cache_call("list_meta", 2000)
     except Exception:
-        cur = None
-    if cur is None:
-        return {"connected": db_connected(), "enabled": _cache_enabled, "offline": _offline_mode, "items": {}, "total_keys": 0}
-    rows = cur.fetchall()
+        rows = None
+    if rows is None:
+        return {**_db_state(), "items": {}, "total_keys": 0}
     items: Dict[str, Any] = {}
     for key, fetched_at, fetched_at_iso in rows:
         parts = key.split("_")
@@ -316,7 +457,7 @@ async def db_cache_summary(symbols: str = ""):
             last_fetched_at = ts
     if last_fetched_at is not None:
         stale_all = time.time() - last_fetched_at >= _cache_ttl
-    return {"connected": db_connected(), "enabled": _cache_enabled, "offline": _offline_mode, "items": items, "total_keys": len(rows), "last_fetched_at": last_fetched_at, "stale_all": stale_all}
+    return {**_db_state(), "items": items, "total_keys": len(rows), "last_fetched_at": last_fetched_at, "stale_all": stale_all}
 
 
 @app.post("/db/refresh")
@@ -821,7 +962,7 @@ async def search_stocks(q: str, limit: int = 10):
 
 
 # Serve the built React app. Local development uses ../frontend/dist, while the
-# combined Docker image copies it into ./frontend/dist next to main.py.
+# a deployment may copy it into ./frontend/dist next to main.py.
 _frontend_candidates = [
     os.path.join(os.path.dirname(__file__), "frontend", "dist"),
     os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"),

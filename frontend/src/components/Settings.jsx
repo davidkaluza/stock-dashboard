@@ -41,13 +41,39 @@ const FONTS = [
   { label: 'Georgia (Serif)', value: "Georgia, serif" },
 ];
 
+export const DB_BACKEND_LABELS = { postgres: 'Supabase', mongodb: 'MongoDB' };
+
+const DB_BACKENDS = [
+  {
+    id: 'postgres',
+    uriKey: 'postgres_uri',
+    title: 'Supabase / Postgres URI',
+    hint: 'Supabase → Connect → Session pooler, z. B. postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres',
+    placeholder: 'postgresql://user:passwort@host:5432/postgres',
+  },
+  {
+    id: 'mongodb',
+    uriKey: 'mongo_uri',
+    title: 'MongoDB URI',
+    hint: 'Lokaler oder entfernter MongoDB-Server, Datenbankname am Ende der URI, z. B. mongodb://10.0.0.1:27017/stock_dashboard_2',
+    placeholder: 'mongodb://host:27017/stock_dashboard',
+  },
+];
+
 const FONT_SIZES = [12, 14, 16, 18, 20, 22];
 
 const PX_TO_SCALE = (px) => Math.max(80, Math.min(140, Math.round((px * 100) / 16)));
 const SCALE_TO_PX = (scale) => Math.round((scale * 16) / 100);
 
 const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, fontScale = 100, onFontScaleChange, fontFamily = "'JetBrains Mono', monospace", onFontFamilyChange, refreshInterval = 60, onRefreshIntervalChange }) => {
-  const [dbUri, setDbUri] = useState(dbConfig?.uri || '');
+  const [dbBackend, setDbBackend] = useState(dbConfig?.backend || 'postgres');
+  const [dbUris, setDbUris] = useState({
+    postgres_uri: dbConfig?.postgres_uri || '',
+    mongo_uri: dbConfig?.mongo_uri || '',
+  });
+  const backendMeta = DB_BACKENDS.find(b => b.id === dbBackend) || DB_BACKENDS[0];
+  const dbUri = dbUris[backendMeta.uriKey];
+  const dbLabel = DB_BACKEND_LABELS[dbBackend];
   const [dbTtl, setDbTtl] = useState(dbConfig?.ttl || 3600);
   const [dbEnabled, setDbEnabled] = useState(dbConfig?.enabled || false);
   const [dbOffline, setDbOffline] = useState(dbConfig?.offline || false);
@@ -66,12 +92,12 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
       const res = await fetch(`${API_BASE}/db/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uri: dbUri, ttl: dbTtl, enabled: dbEnabled, offline: dbOffline }),
+        body: JSON.stringify({ backend: dbBackend, ...dbUris, ttl: dbTtl, enabled: dbEnabled, offline: dbOffline }),
       });
       const data = await res.json();
-      onDbConfig({ uri: dbUri, ttl: dbTtl, enabled: data.enabled, offline: data.offline, connected: data.connected });
+      onDbConfig({ backend: dbBackend, ...dbUris, ttl: dbTtl, enabled: data.enabled, offline: data.offline, connected: data.connected });
     } catch (e) {
-      onDbConfig({ uri: dbUri, ttl: dbTtl, enabled: dbEnabled, offline: dbOffline, connected: false });
+      onDbConfig({ backend: dbBackend, ...dbUris, ttl: dbTtl, enabled: dbEnabled, offline: dbOffline, connected: false });
     } finally {
       setConnecting(false);
     }
@@ -172,7 +198,7 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
                 <div className="border border-accent p-3 flex items-center justify-between">
                   <div>
                     <div className="text-xs-mono uppercase">Offline-Modus</div>
-                    <div className="text-[0.7rem] text-muted">Nur Supabase lesen, keine yfinance-Zugriffe</div>
+                    <div className="text-[0.7rem] text-muted">Nur {dbLabel} lesen, keine yfinance-Zugriffe</div>
                   </div>
                   <button
                     onClick={() => setDbOffline(!dbOffline)}
@@ -183,14 +209,30 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
                 </div>
 
                 <div className="border border-accent p-3">
-                  <div className="text-xs-mono uppercase mb-1">Supabase / Postgres URI</div>
-                  <div className="text-[0.7rem] text-muted mb-2">Supabase → Connect → Session pooler, z. B. postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres</div>
+                  <div className="text-xs-mono uppercase mb-1">Datenbank</div>
+                  <div className="text-[0.7rem] text-muted mb-2">Beide URIs bleiben gespeichert, aktiv ist nur die ausgewählte.</div>
+                  <div className="flex gap-2">
+                    {DB_BACKENDS.map(b => (
+                      <button
+                        key={b.id}
+                        onClick={() => setDbBackend(b.id)}
+                        className={`flex-1 text-xs-mono border border-accent px-3 py-1.5 transition-colors ${dbBackend === b.id ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
+                      >
+                        {DB_BACKEND_LABELS[b.id]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border border-accent p-3">
+                  <div className="text-xs-mono uppercase mb-1">{backendMeta.title}</div>
+                  <div className="text-[0.7rem] text-muted mb-2">{backendMeta.hint}</div>
                   <input
                     type="text"
                     value={dbUri}
-                    onChange={(e) => setDbUri(e.target.value)}
+                    onChange={(e) => setDbUris(prev => ({ ...prev, [backendMeta.uriKey]: e.target.value }))}
                     className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
-                    placeholder="postgresql://user:passwort@host:5432/postgres"
+                    placeholder={backendMeta.placeholder}
                   />
                 </div>
 

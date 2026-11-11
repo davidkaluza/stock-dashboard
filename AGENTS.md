@@ -27,12 +27,12 @@ start-local-dev.bat                  # Backend + Frontend parallel (Windows)
 | `.gitignore` | Repo-Root | Ignoriert `node_modules/`, `dist/`, `package-lock.json`, `*.pyc`, `db_config.json` (local), `*.old`, `es_*`. Junk aber noch im Git-Index getrackt (9705 Dateien) — erst `git rm --cached` untracked |
 | Kein `vite.config.js` | — | Nur Vite-Standard (plugin-react, tailwind via postcss). Kein Proxy, keine Aliase |
 | Kein Lint/Test/Typecheck | — | Nur `dev`, `build`, `preview`. Kein Test-Framework, keine CI |
-| db_config.json | `backend/db_config.json` | DB-Einstellungen aus den UI-Settings, enthält das Supabase-Passwort → nicht in git (Vorlage: `db_config.json.example`). Env-Vars (DATABASE_URL/DB_ENABLED/CACHE_TTL/OFFLINE_MODE) gewinnen über der Datei |
+| db_config.json | `backend/db_config.json` | DB-Einstellungen aus den UI-Settings, Format `{backend, postgres_uri, mongo_uri, ttl, enabled, offline}`; Altformat mit nur `uri` wird beim Laden per Schema (`mongodb…` → Mongo) zugeordnet. Enthält das Supabase-Passwort → nicht in git (Vorlage: `db_config.json.example`). Env-Vars (DATABASE_URL/MONGO_URI/DB_BACKEND/DB_ENABLED/CACHE_TTL/OFFLINE_MODE) gewinnen über der Datei |
 | Schrift/Farben | `index.html:10`, `index.css:5-10` | JetBrains Mono via Google Fonts. Farben via CSS-Vars (`--bg-background`, `--bg-surface`, `--clr-accent`, `--clr-muted`) |
 
-## Supabase (optionale Caching-DB)
+## Caching-DB (optional): Supabase oder MongoDB
 
-Cache in Supabase (PostgreSQL) via `psycopg`. Konfiguration über `backend/db_config.json` oder UI *Einstellungen → Datenbank* mit dem Connection-String aus Supabase → *Connect* → **Session pooler** (IPv4-tauglich; die Direktverbindung ist nur IPv6):
+Cache wahlweise in Supabase (PostgreSQL, via `psycopg`) oder MongoDB (via `pymongo`, Collection `stock_cache`, Key als `_id`). Umschaltbar in *Einstellungen → Datenbank*; beide URIs werden gespeichert. Supabase-Konfiguration über `backend/db_config.json` oder UI *Einstellungen → Datenbank* mit dem Connection-String aus Supabase → *Connect* → **Session pooler** (IPv4-tauglich; die Direktverbindung ist nur IPv6):
 
 ```bash
 postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
@@ -44,7 +44,7 @@ dann ggf. von yfinance aktualisiert. Ist die DB nicht erreichbar, läuft die App
 
 Altdaten aus der früheren MongoDB einmalig übernehmen: `cd backend && pip install pymongo && python migrate_mongo_to_supabase.py <mongo-uri> <postgres-uri>`.
 
-**Offline-Modus**: In den Settings aktivierbar. Beim Aktivieren werden KEINE yfinance-Abfragen mehr gemacht — nur Cache-Reads, 503 wenn ein Symbol fehlt (`raise_if_offline_without_cache`). Workflow: Watchlist füllen → `POST /db/refresh` („Supabase aktualisieren") → Offline an.
+**Offline-Modus**: In den Settings aktivierbar. Beim Aktivieren werden KEINE yfinance-Abfragen mehr gemacht — nur Cache-Reads, 503 wenn ein Symbol fehlt (`raise_if_offline_without_cache`). Workflow: Watchlist füllen → `POST /db/refresh` („Datenbank aktualisieren") → Offline an.
 
 ## API (localhost:8001)
 

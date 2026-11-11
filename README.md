@@ -44,9 +44,9 @@ cd ../backend && python main.py
 
 Der Backend-Server servt das gebaute Frontend statisch + API auf `http://localhost:8001`.
 
-## Supabase
+## Caching-Datenbank: Supabase oder MongoDB
 
-Konfiguration unter *Einstellungen → Datenbank* oder direkt in `backend/db_config.json` (Vorlage: `db_config.json.example`; die Datei enthaelt das DB-Passwort und wird nicht in Git eingecheckt).
+Unterstuetzt werden Supabase (PostgreSQL) und MongoDB. Unter *Einstellungen → Datenbank* waehlt man das Backend; beide URIs bleiben gespeichert, aktiv ist nur das ausgewaehlte. Konfiguration dort oder direkt in `backend/db_config.json` (Vorlage: `db_config.json.example`; die Datei enthaelt das DB-Passwort und wird nicht in Git eingecheckt).
 
 Connection-String in Supabase unter *Connect* → **Session pooler** kopieren und `[YOUR-PASSWORD]` ersetzen:
 
@@ -54,7 +54,9 @@ Connection-String in Supabase unter *Connect* → **Session pooler** kopieren un
 postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
 ```
 
-Alternativ per Umgebungsvariable `DATABASE_URL`. Die Tabelle `stock_cache` wird beim ersten Verbinden automatisch angelegt; alle API-Responses werden dort gecached (Standard-TTL 3600s).
+MongoDB-URI mit Datenbankname am Ende, z. B. `mongodb://10.0.0.1:27017/stock_dashboard_2`; die Collection `stock_cache` wird automatisch genutzt.
+
+Alternativ per Umgebungsvariablen `DATABASE_URL` (Postgres) bzw. `MONGO_URI`, Auswahl bei beiden ueber `DB_BACKEND=postgres|mongodb`. Bei Supabase Die Tabelle `stock_cache` wird beim ersten Verbinden automatisch angelegt; alle API-Responses werden dort gecached (Standard-TTL 3600s).
 
 ### Altdaten aus MongoDB uebernehmen (einmalig)
 
@@ -67,11 +69,11 @@ python migrate_mongo_to_supabase.py mongodb://10.0.0.176:27017/stock_dashboard_2
 ## Workflow fuer Offline-Modus
 
 1. Aktien zur Watchlist hinzufuegen.
-2. Button "Supabase aktualisieren" (Pfeil-Symbol) klicken.
+2. Button "Datenbank aktualisieren" (Pfeil-Symbol) klicken.
 3. Fortschritt abwarten, z. B. "2 von 100 geladen".
 4. Offline-Button aktivieren.
 
-Im Offline-Modus werden keine yfinance-Abfragen ausgefuehrt. Die App liest dann nur aus Supabase.
+Im Offline-Modus werden keine yfinance-Abfragen ausgefuehrt. Die App liest dann nur aus der Datenbank.
 
 ## Neue Bedienung
 
