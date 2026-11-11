@@ -171,6 +171,71 @@ Ins Suchfeld eintippen, z. B. `716460` (WKN) → `SAP.DE · Xetra`, `A0RPWH` →
 
 ---
 
+## E. Push-Benachrichtigungen
+
+### E1. Schlüssel für den Versand (VAPID)
+
+Einmalig ein Schlüsselpaar erzeugen und direkt in GitHub eintragen. Der private Schlüssel wird dabei nie angezeigt:
+
+```bash
+pip install cryptography
+python scripts/gen_vapid.py --github     # setzt Variable VITE_VAPID_PUBLIC_KEY und Secret VAPID_PRIVATE_KEY
+gh secret set VAPID_SUBJECT --body "https://<dein-github-name>.github.io"
+```
+
+`VAPID_SUBJECT` ist eine Kontaktangabe für Apple/Google: entweder `mailto:name@domain` oder eine https-Adresse **ohne Pfad**. `https://…github.io/stock-dashboard/` wird abgelehnt.
+
+Danach muss die App neu gebaut werden (**Actions → PWA veröffentlichen → Run workflow** oder ein beliebiger Push), damit sie den öffentlichen Schlüssel enthält.
+
+Ein neues Schlüsselpaar macht alle bestehenden Abos ungültig. Die App meldet sich beim nächsten Öffnen selbst neu an, sofern Benachrichtigungen erlaubt sind.
+
+### E2. Neuer Ticker → sofort laden (optional)
+
+Ohne diesen Schritt erscheinen neue Ticker spätestens nach dem nächsten 30-Minuten-Lauf. Mit ihm startet Supabase die Action sofort.
+
+1. Supabase → **SQL Editor** → **+ New query** → Inhalt von [`supabase/migrations/0002_dispatch_new_ticker.sql`](../supabase/migrations/0002_dispatch_new_ticker.sql) einfügen → **Run**.
+2. GitHub → Profilbild → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**:
+   - **Token name:** `supabase-dispatch`
+   - **Expiration:** z. B. 1 Jahr (danach erneuern, siehe unten)
+   - **Repository access:** *Only select repositories* → `stock-dashboard`
+   - **Permissions → Repository permissions → Actions:** *Read and write*. Sonst nichts.
+   - **Generate token** und kopieren.
+3. Supabase → **SQL Editor** → mit deinem Token und Repo:
+
+   ```sql
+   select vault.create_secret('github_pat_…DEIN_TOKEN…', 'github_dispatch_token');
+   select vault.create_secret('davidkaluza/stock-dashboard', 'github_repo');
+   ```
+
+Der Token kann nur Workflows dieses Repos starten, keinen Code ändern.
+
+**Token erneuern:** neuen Token erzeugen, dann
+`select vault.update_secret((select id from vault.secrets where name = 'github_dispatch_token'), 'github_pat_…NEU…');`
+
+**Prüfen:** In der App einen neuen Ticker hinzufügen → unter GitHub **Actions** startet nach wenigen Sekunden ein Lauf „Kurse abrufen“.
+
+### E3. Auf dem Gerät aktivieren
+
+1. iPhone/iPad: Die App muss **zum Home-Bildschirm hinzugefügt** sein (D3), ab iOS 16.4. Android/Desktop: im Browser oder als installierte App.
+2. **Einstellungen → Benachrichtigungen → Aktivieren** → Abfrage **Erlauben**.
+3. **Test-Anzeige** prüft die Darstellung auf dem Gerät.
+4. Echter Versand: GitHub → **Actions → Kurse abrufen → Run workflow → Modus `test-push`**. Nach etwa einer Minute kommt „Testnachricht – Benachrichtigungen funktionieren.“
+
+### E4. Regeln festlegen
+
+Auf jeder Karte und in jeder Tabellenzeile öffnet das **Glocken-Symbol** die Regeln für die Aktie. Ist mindestens eine Regel aktiv, ist die Glocke gefüllt.
+
+| Regel | Meldet |
+|---|---|
+| Tagesänderung | Änderung zum Vortag ≥ X %, je Richtung einmal pro Tag |
+| Kursschwelle | Kurs über/unter festem Wert, erneut erst nach Rückkehr (0,5 % Abstand) |
+| Referenzkurs | ±X % gegenüber einem Referenzkurs (vorbelegt mit dem Kaufkurs; dieser eine Wert wird auf dem Server gespeichert) |
+| News | neue Meldungen zur Aktie |
+
+Geprüft wird bei jedem Lauf der Action (Mo–Fr alle 30 Minuten). Höchstens 20 Pushes pro Lauf, alle Meldungen stehen unter **Einstellungen → Benachrichtigungen → Zuletzt gesendet**. Die Regeln sind in der JSON-Sicherung enthalten.
+
+---
+
 ## Lokal entwickeln
 
 ```bash

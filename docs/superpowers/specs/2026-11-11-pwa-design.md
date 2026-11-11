@@ -71,7 +71,7 @@ Alle Tabellen liegen im Schema `public` und haben RLS aktiviert.
 
 ### Trigger
 
-Die Marktdaten-Tabellen verweisen per Fremdschlüssel mit `ON DELETE CASCADE` auf `symbols.symbol`. Ein Insert in `user_tickers` legt per Trigger (`SECURITY DEFINER`, weil die PWA `symbols` nicht schreiben darf) eine `symbols`-Zeile mit `status = 'pending'` an, falls sie noch nicht existiert. Bei einer neuen `pending`-Zeile ruft ein zweiter Trigger über `pg_net` die GitHub-API auf (`POST /repos/{owner}/{repo}/dispatches`, `event_type: "new-ticker"`, `client_payload: {symbol}`). Das Token liegt im Supabase Vault. Fehlt das Token oder schlägt der Aufruf fehl, holt der nächste reguläre Lauf das Symbol nach.
+Die Marktdaten-Tabellen verweisen per Fremdschlüssel mit `ON DELETE CASCADE` auf `symbols.symbol`. Ein Insert in `user_tickers` legt per Trigger (`SECURITY DEFINER`, weil die PWA `symbols` nicht schreiben darf) eine `symbols`-Zeile mit `status = 'pending'` an, falls sie noch nicht existiert. Bei einer neuen `pending`-Zeile ruft ein zweiter Trigger über `pg_net` die GitHub-API auf (`POST /repos/{owner}/{repo}/actions/workflows/fetch.yml/dispatches`, Modus `new` ohne Symbol = alle noch nicht geladenen). *Umsetzung:* `workflow_dispatch` statt `repository_dispatch`, weil der Token dann nur „Actions: write“ braucht statt „Contents: write“. Das Token liegt im Supabase Vault. Fehlt das Token oder schlägt der Aufruf fehl, holt der nächste reguläre Lauf das Symbol nach.
 
 ### Datenschutz
 

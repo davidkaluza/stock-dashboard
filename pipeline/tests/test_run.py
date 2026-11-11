@@ -1,11 +1,12 @@
 from datetime import date, timedelta
 
-from pipeline.run import run_new, run_nightly, run_quotes
+from pipeline.run import MAX_PUSHES_PER_USER, run_new, run_nightly, run_quotes, run_test_push
 
 TODAY = date(2026, 11, 11)
 KEYS = {
     "symbols": ("symbol",), "quotes": ("symbol",), "stats": ("symbol",), "details": ("symbol",),
     "news": ("symbol", "id"), "daily_prices": ("symbol", "date"), "user_tickers": ("symbol",),
+    "alert_rules": ("id",), "push_subscriptions": ("id",), "alert_log": ("id",),
 }
 
 
@@ -26,7 +27,8 @@ class FakeStore:
             if col == "order":
                 continue
             op, _, val = cond.partition(".")
-            cell = str(row.get(col))
+            value = row.get(col)
+            cell = str(value).lower() if isinstance(value, bool) else str(value)
             if op == "eq" and cell != val:
                 return False
             if op == "gte" and not cell >= val:
@@ -46,11 +48,18 @@ class FakeStore:
         n = 0
         for r in rows:
             r = {k: (v.isoformat() if isinstance(v, date) else v) for k, v in r.items()}
+            if table == "alert_log":  # Identity-Spalte nachbilden
+                r = {"id": len(self.tables[table]) + 1, **r}
             key = tuple(str(r[k]) for k in KEYS[table])
             existing = self.tables[table].get(key, {"status": "pending"} if table == "symbols" else {})
             self.tables[table][key] = {**existing, **r}
             n += 1
         return n
+
+    def update(self, table, values, **filters):
+        for row in self.tables[table].values():
+            if self._match(row, filters):
+                row.update(values)
 
     def delete(self, table, **filters):
         self.deleted.append((table, filters))
@@ -146,3 +155,78 @@ def test_nightly_reloads_full_history_after_split():
     assert fetcher.daily_calls[-1] == ("SAP.DE", None)
     assert ("daily_prices", {"symbol": "eq.SAP.DE"}) in store.deleted
     assert {r["close"] for r in store.tables["daily_prices"].values()} == {100.0}
+
+
+class FakePusher:
+    def __init__(self, results=None):
+        self.sent = []
+        self.results = results or {}
+
+    def send(self, sub, payload):
+        self.sent.append((sub["endpoint"], payload))
+        return self.results.get(sub["endpoint"], "ok")
+
+
+def store_with_alerts(rules, subs):
+    store = FakeStore(["SAP.DE"], symbols={"SAP.DE": "ok"})
+    store.tables["symbols"][("SAP.DE",)].update(name="SAP SE", currency="EUR")
+    for r in rules:
+        store.tables["alert_rules"][(str(r["id"]),)] = {"user_id": "u1", "symbol": "SAP.DE", "enabled": True, "last_state": None, **r}
+    for sub in subs:
+        store.tables["push_subscriptions"][(str(sub["id"]),)] = {"user_id": "u1", "p256dh": "k", "auth": "a", **sub}
+    return store
+
+
+def test_quotes_run_evaluates_rules_and_pushes():
+    # FakeFetcher: Kurs 110 bei Vortag 100 → +10 %
+    store = store_with_alerts(
+        [{"id": 1, "type": "day_change", "params": {"pct": 5}}, {"id": 2, "type": "threshold", "params": {"above": 200}}],
+        [{"id": 1, "endpoint": "https://push/a"}, {"id": 2, "endpoint": "https://push/b"}],
+    )
+    pusher = FakePusher()
+    run_quotes(store, FakeFetcher(), TODAY, pusher)
+
+    assert [p["title"] for _, p in pusher.sent] == ["SAP.DE +10,0 %", "SAP.DE +10,0 %"]  # an beide Geräte
+    assert pusher.sent[0][1]["symbol"] == "SAP.DE"
+    assert store.tables["alert_rules"][("1",)]["last_state"] == {"date": TODAY.isoformat(), "up": True, "down": False}
+    assert store.tables["alert_rules"][("2",)]["last_state"] == {"above_hit": False, "below_hit": False}
+    log = list(store.tables["alert_log"].values())
+    assert len(log) == 1 and log[0]["user_id"] == "u1" and log[0]["rule_id"] == 1
+
+    # zweiter Lauf am selben Tag: keine erneute Meldung
+    pusher2 = FakePusher()
+    run_quotes(store, FakeFetcher(), TODAY, pusher2)
+    assert pusher2.sent == []
+
+
+def test_disabled_rules_and_runs_without_pusher_send_nothing():
+    store = store_with_alerts([{"id": 1, "type": "day_change", "params": {"pct": 5}, "enabled": False}], [{"id": 1, "endpoint": "https://push/a"}])
+    pusher = FakePusher()
+    run_quotes(store, FakeFetcher(), TODAY, pusher)
+    assert pusher.sent == []
+    store = store_with_alerts([{"id": 1, "type": "day_change", "params": {"pct": 5}}], [{"id": 1, "endpoint": "https://push/a"}])
+    run_quotes(store, FakeFetcher(), TODAY, None)
+    assert store.tables["alert_rules"][("1",)]["last_state"] is None
+
+
+def test_expired_subscriptions_are_deleted():
+    store = store_with_alerts([{"id": 1, "type": "day_change", "params": {"pct": 5}}],
+                              [{"id": 1, "endpoint": "https://push/alt"}, {"id": 2, "endpoint": "https://push/neu"}])
+    run_quotes(store, FakeFetcher(), TODAY, FakePusher({"https://push/alt": "gone"}))
+    assert list(store.tables["push_subscriptions"]) == [("2",)]
+
+
+def test_push_limit_per_user():
+    rules = [{"id": i, "type": "threshold", "params": {"above": 1 + i / 1000}} for i in range(1, MAX_PUSHES_PER_USER + 6)]
+    store = store_with_alerts(rules, [{"id": 1, "endpoint": "https://push/a"}])
+    pusher = FakePusher()
+    run_quotes(store, FakeFetcher(), TODAY, pusher)
+    assert len(pusher.sent) == MAX_PUSHES_PER_USER
+    assert len(store.tables["alert_log"]) == MAX_PUSHES_PER_USER + 5  # Verlauf vollständig
+
+
+def test_test_push_reaches_all_devices():
+    store = store_with_alerts([], [{"id": 1, "endpoint": "https://push/a"}, {"id": 2, "endpoint": "https://push/b"}])
+    pusher = FakePusher({"https://push/b": "error"})
+    assert run_test_push(store, pusher) == (1, 1)
+    assert pusher.sent[0][1]["title"] == "Stock Dashboard"

@@ -2,3 +2,4 @@ yfinance>=1.8
 pandas
 python-dateutil
 requests
+pywebpush>=2.0

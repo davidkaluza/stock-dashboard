@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip } from 'recharts';
-import { Trash2, ArrowLeftRight } from 'lucide-react';
+import { Trash2, ArrowLeftRight, Bell } from 'lucide-react';
 import { CHART_PERIODS, DEFAULT_PERIOD, SINCE_PURCHASE } from '../lib/history';
 import { formatFetchedAt } from '../lib/market';
 
@@ -63,6 +63,8 @@ const StockCard = ({
   onPeriodChange,
   onShowDetail,
   onMoveCopy,
+  onAlerts,
+  hasAlerts = false,
   accounts,
   activeAccountId,
 }) => {
@@ -159,6 +161,19 @@ const StockCard = ({
           </p>
         </div>
         <div className="flex items-center gap-1">
+          {onAlerts && (
+            <button
+              type="button"
+              aria-label={`${symbol || 'Aktie'} Benachrichtigungen`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAlerts(symbol);
+              }}
+              className={`${hasAlerts ? 'text-accent' : 'text-muted'} hover:text-white transition-colors`}
+            >
+              <Bell size={12} fill={hasAlerts ? 'currentColor' : 'none'} />
+            </button>
+          )}
           {accounts && accounts.length > 1 && (
             <button
               type="button"

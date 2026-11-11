@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, RotateCcw, Minus, Plus, Palette, Type, RefreshCw, User, LogOut, Download, Upload } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, RotateCcw, Minus, Plus, Palette, Type, RefreshCw, User, LogOut, Download, Upload, Bell, BellOff, Share } from 'lucide-react';
 
 const DEFAULTS = {
   background: '#33312B',
@@ -25,6 +25,7 @@ const FIELDS = [
 
 const NAV = [
   { id: 'account', label: 'Konto', icon: User },
+  { id: 'push', label: 'Push', icon: Bell },
   { id: 'colors', label: 'Farben', icon: Palette },
   { id: 'font', label: 'Schrift', icon: Type },
   { id: 'refresh', label: 'Aktualisierung', icon: RefreshCw },
@@ -46,7 +47,7 @@ const FONT_SIZES = [12, 14, 16, 18, 20, 22];
 const PX_TO_SCALE = (px) => Math.max(80, Math.min(140, Math.round((px * 100) / 16)));
 const SCALE_TO_PX = (scale) => Math.round((scale * 16) / 100);
 
-const Settings = ({ colors, onChange, onClose, email, onSignOut, onExportBackup, onImportFile, lastBackupAt, fontScale = 100, onFontScaleChange, fontFamily = "'JetBrains Mono', monospace", onFontFamilyChange, refreshInterval = 300, onRefreshIntervalChange }) => {
+const Settings = ({ colors, onChange, onClose, initialSection, email, onSignOut, onExportBackup, onImportFile, lastBackupAt, pushState, pushBusy, pushError, onEnablePush, onDisablePush, onTestNotification, alertLog = [], fontScale = 100, onFontScaleChange, fontFamily = "'JetBrains Mono', monospace", onFontFamilyChange, refreshInterval = 300, onRefreshIntervalChange }) => {
   const [collapsed, setCollapsed] = useState(() => new Set(['colors', 'font', 'refresh']));
 
   const fontSizePx = SCALE_TO_PX(fontScale);
@@ -74,6 +75,11 @@ const Settings = ({ colors, onChange, onClose, email, onSignOut, onExportBackup,
       document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   };
+
+  useEffect(() => {
+    if (initialSection) focusSection(initialSection);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSection]);
 
   const Section = ({ id, title, icon: Icon, children }) => {
     const isCollapsed = collapsed.has(id);
@@ -165,6 +171,75 @@ const Settings = ({ colors, onChange, onClose, email, onSignOut, onExportBackup,
                       <input type="file" accept=".json,application/json" onChange={onImportFile} className="hidden" />
                     </label>
                   </div>
+                </div>
+              </div>
+            </Section>
+          </div>
+
+          {/* ── Benachrichtigungen ── */}
+          <div className="border-t border-accent pt-4 mb-4">
+            <Section id="push" title="Benachrichtigungen" icon={Bell}>
+              <div className="space-y-3">
+                <div className="border border-accent p-3">
+                  <div className="text-xs-mono uppercase mb-1">Dieses Gerät</div>
+                  {pushState === 'on' && <p className="text-[0.7rem] text-pos mb-2">Aktiv – Meldungen kommen auf diesem Gerät an.</p>}
+                  {pushState === 'off' && <p className="text-[0.7rem] text-muted mb-2">Aus. Die Regeln legst du pro Aktie über das Glocken-Symbol fest.</p>}
+                  {pushState === 'denied' && <p className="text-[0.7rem] text-neg mb-2">Im Browser blockiert. In den Browser- bzw. iOS-Einstellungen für diese App wieder erlauben.</p>}
+                  {pushState === 'unsupported' && <p className="text-[0.7rem] text-neg mb-2">Dieser Browser unterstützt keine Web-Push-Nachrichten.</p>}
+                  {pushState === 'not-configured' && <p className="text-[0.7rem] text-neg mb-2">Push ist noch nicht eingerichtet (VITE_VAPID_PUBLIC_KEY fehlt, siehe Anleitung).</p>}
+                  {pushState === 'needs-install' && (
+                    <div className="text-[0.7rem] text-muted mb-2 space-y-1">
+                      <p className="text-accent">Auf dem iPhone/iPad funktionieren Benachrichtigungen nur in der installierten App (ab iOS 16.4):</p>
+                      <p>1. In Safari unten auf <Share size={11} className="inline" /> <strong>Teilen</strong> tippen</p>
+                      <p>2. <strong>Zum Home-Bildschirm</strong> wählen</p>
+                      <p>3. Die App über das neue Symbol öffnen, anmelden und hier aktivieren</p>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    {(pushState === 'off' || pushState === 'on') && (
+                      pushState === 'off' ? (
+                        <button onClick={onEnablePush} disabled={pushBusy} className="flex-1 flex items-center justify-center gap-2 text-xs-mono bg-accent text-white border border-accent px-3 py-1.5 disabled:opacity-40">
+                          <Bell size={14} /> {pushBusy ? 'Aktiviere…' : 'Aktivieren'}
+                        </button>
+                      ) : (
+                        <button onClick={onDisablePush} disabled={pushBusy} className="flex-1 flex items-center justify-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 disabled:opacity-40">
+                          <BellOff size={14} /> Deaktivieren
+                        </button>
+                      )
+                    )}
+                    {pushState === 'on' && (
+                      <button onClick={onTestNotification} className="flex-1 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5">
+                        Test-Anzeige
+                      </button>
+                    )}
+                  </div>
+                  {pushError && <p className="text-[0.7rem] text-neg mt-2">{pushError}</p>}
+                  {pushState === 'on' && (
+                    <p className="text-[0.7rem] text-muted mt-2">
+                      „Test-Anzeige“ prüft nur die Darstellung. Den echten Versand testest du auf GitHub unter Actions → Kurse abrufen → Run workflow → Modus test-push.
+                    </p>
+                  )}
+                </div>
+
+                <div className="border border-accent p-3">
+                  <div className="text-xs-mono uppercase mb-2">Zuletzt gesendet</div>
+                  {alertLog.length === 0 ? (
+                    <p className="text-[0.7rem] text-muted">Noch keine Meldungen.</p>
+                  ) : (
+                    <ul className="space-y-1.5 max-h-60 overflow-y-auto">
+                      {alertLog.map((entry) => (
+                        <li key={entry.id} className="text-[0.7rem] border-b border-accent/30 pb-1 last:border-b-0">
+                          <div className="flex justify-between gap-2">
+                            <span className="text-white">{entry.title}</span>
+                            <span className="text-muted whitespace-nowrap">
+                              {new Date(entry.sent_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          {entry.body && <div className="text-muted truncate">{entry.body}</div>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             </Section>

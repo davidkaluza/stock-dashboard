@@ -17,19 +17,21 @@ python -m pytest pipeline/tests                        # Pipeline-Tests, offline
 python -m pytest pipeline/tests/test_run.py -k split   # einzelner Test
 python -m pipeline.run quotes --dry-run SAP.DE AAPL    # echte Yahoo-Daten, schreibt nichts
 python scripts/gen_icons.py           # PWA-Icons in frontend/public/ neu erzeugen (Pillow)
+python scripts/gen_vapid.py --github  # VAPID-Schlüsselpaar erzeugen und per gh in Variable/Secret eintragen
 ```
 
-Workflows: `fetch.yml` (Kursabruf: Mo–Fr alle 30 min, nachts, `repository_dispatch: new-ticker`, manuell), `pages.yml` (Build + Pages bei Push auf `pwa`), `functions.yml` (Edge Functions per Supabase-CLI, übersprungen ohne `SUPABASE_ACCESS_TOKEN`), `test.yml` (pytest + vitest + Build). Zeitgesteuerte und Dispatch-Workflows laufen nur auf dem **Standard-Zweig**.
+Workflows: `fetch.yml` (Kursabruf + Push-Regeln: Mo–Fr alle 30 min, nachts, `workflow_dispatch` manuell oder von Supabase bei neuem Ticker; Modi `quotes`/`nightly`/`new`/`test-push`), `pages.yml` (Build + Pages bei Push auf `pwa`), `functions.yml` (Edge Functions per Supabase-CLI, übersprungen ohne `SUPABASE_ACCESS_TOKEN`), `test.yml` (pytest + vitest + Build). Zeitgesteuerte und Dispatch-Workflows laufen nur auf dem **Standard-Zweig**.
 
 ## Architektur
 
 - **Privat bleibt lokal:** Depots, Menge, Kaufkurs, Kaufdatum liegen nur im `localStorage` der PWA. Auf den Server gehen nur Ticker (`user_tickers`) und später Push-Regeln/-Abos. Neue Features dürfen Depotdaten nicht nach Supabase schreiben.
-- **Supabase-Schema:** `supabase/migrations/0001_schema.sql`. Marktdaten (`symbols`, `quotes`, `daily_prices`, `stats`, `details`, `news`) sind für `authenticated` lesbar und werden nur per Service-Key (Action) geschrieben. Nutzertabellen haben RLS `user_id = auth.uid()`. Ein Trigger legt für neue `user_tickers` eine `symbols`-Zeile mit `status = 'pending'` an.
-- **Pipeline (`pipeline/`):** `run.py` (Modi, Orchestrierung; `store`/`fetcher` werden injiziert → testbar mit Fakes), `fetch.py` (alles mit yfinance), `calc.py` (reine Funktionen: Performance aus Tageskursen, News-Normalisierung, Split-Erkennung), `store.py` (PostgREST per `requests`). Performance wird aus `daily_prices` berechnet, nicht per yfinance-Abfrage pro Zeitraum.
+- **Supabase-Schema:** `supabase/migrations/0001_schema.sql`; `0002_dispatch_new_ticker.sql` startet per `pg_net` die Action bei neuem `symbols`-Eintrag (Token/Repo im Vault, ohne sie No-Op). Marktdaten (`symbols`, `quotes`, `daily_prices`, `stats`, `details`, `news`) sind für `authenticated` lesbar und werden nur per Service-Key (Action) geschrieben. Nutzertabellen haben RLS `user_id = auth.uid()`. Ein Trigger legt für neue `user_tickers` eine `symbols`-Zeile mit `status = 'pending'` an.
+- **Pipeline (`pipeline/`):** `run.py` (Modi, Orchestrierung; `store`/`fetcher` werden injiziert → testbar mit Fakes), `fetch.py` (alles mit yfinance), `calc.py` (reine Funktionen: Performance aus Tageskursen, News-Normalisierung, Split-Erkennung), `store.py` (PostgREST per `requests`), `alerts.py` (reine Regelauswertung mit Entprellung über `last_state`), `push.py` (pywebpush/VAPID; 404/410 → Abo löschen). Performance wird aus `daily_prices` berechnet, nicht per yfinance-Abfrage pro Zeitraum.
 - **Frontend-Datenschicht `frontend/src/lib/`:** `market.js` liefert Supabase-Daten in den Formen, die die Komponenten erwarten (`stockData[sym] = {symbol, name, price, change, change_percent, currency, status, fetched_at}`, `statsData[sym] = {performance}`). `history.js` filtert Chart-Zeiträume lokal aus Tageskursen. `tickers.js` gleicht `user_tickers` ab (leere lokale Liste löscht nichts). `backup.js` übernimmt CSV und JSON-Sicherung. `theme.js` setzt gespeicherte Farben vor dem ersten Rendern.
 - **`Root.jsx`** entscheidet zwischen Login (E-Mail-OTP-Code, `shouldCreateUser: false`) und `App.jsx`. `App.jsx` ist der zentrale State-Container, die Komponenten sind präsentational.
 - **Suche:** Edge Function `supabase/functions/lookup/` – `logic.js` ist reines ESM (Deno + vitest, Tests in `frontend/src/lib/lookup.test.js`), `index.ts` nur die Deno-Hülle. WKN/ISIN → OpenFIGI → Börsencode-Tabelle `EXCHANGES` → Yahoo-Ticker; Namen → Yahoo-Suche. Frontend ruft sie über `lib/search.js` (`functions.invoke`) auf.
-- **PWA:** `vite-plugin-pwa` mit `injectManifest`; eigener Service Worker `frontend/src/sw.js` (Precache, Navigation-Fallback; Push-Handler folgen).
+- **Push:** `lib/push.js` (Abo dieses Geräts, `syncPushSubscription` beim Start erneuert verworfene iOS-Abos), `lib/alerts.js` (Regeln `alert_rules`, Validierung), `components/AlertDialog.jsx` (Glocke pro Aktie). Die PWA setzt nie `last_state` (DB-Trigger setzt ihn bei Nutzeränderung auf null).
+- **PWA:** `vite-plugin-pwa` mit `injectManifest`; eigener Service Worker `frontend/src/sw.js` (Precache, Navigation-Fallback, `push` → `showNotification`, `notificationclick` → `?symbol=`).
 
 ## Tücken
 
@@ -43,6 +45,7 @@ Workflows: `fetch.yml` (Kursabruf: Mo–Fr alle 30 min, nachts, `repository_disp
 | Kaufkurs `null` | markiert eine neu hinzugefügte Aktie; wird mit dem ersten Kurs vorbelegt. `0`/fehlend (CSV-Import) bleibt unangetastet |
 | localStorage-Größe | `dailyPrices` wird nur für die letzten 400 Tage gespeichert (`trimDailyForStorage`), längere Zeiträume werden bei Bedarf nachgeladen |
 | `package-lock.json` | eingecheckt (CI nutzt `npm ci`), enthält die Linux-Binärpakete für Rollup/esbuild |
+| `VAPID_SUBJECT` | py_vapid akzeptiert nur `mailto:…` oder `https://host` ohne Pfad – `WebPusher` prüft das beim Start |
 | `CHANGELOG.md` | beschreibt den Stand v0.1.0 (Docker, Insider-Tab) und ist veraltet |
 
 ## Frontend-State (localStorage)

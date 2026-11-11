@@ -4,11 +4,14 @@ import AddStock from './components/AddStock';
 import TableView from './components/TableView';
 import StockDetail from './components/StockDetail';
 import Settings from './components/Settings';
+import AlertDialog from './components/AlertDialog';
 import { LayoutGrid, Table, Download, Upload, Printer, Plus, Trash2, Pencil, Settings as SettingsIcon, ArrowUp, ArrowDown, ArrowLeftRight, Copy, X, RefreshCw, ShieldAlert } from 'lucide-react';
 import { fetchSnapshot, fetchDailyPrices, formatFetchedAt } from './lib/market';
 import { CARD_HISTORY_DAYS, DEFAULT_PERIOD, daysAgo, filterHistory, hasHistoryFor, periodStart, toIsoDate } from './lib/history';
 import { collectSymbols, normalizeSymbol, syncTickers } from './lib/tickers';
 import { createSearch } from './lib/search';
+import { RULE_TYPES, groupRules, loadAlertLog, loadRules, rulesForBackup, saveRules } from './lib/alerts';
+import { disablePush, enablePush, pushStatus, showTestNotification, syncPushSubscription } from './lib/push';
 import { buildBackup, buildCsv, downloadFile, emptyAccount, mergeCsvIntoAccounts, parseBackup, parseCsv } from './lib/backup';
 
 const APP_VERSION = '0.2.0';
@@ -88,6 +91,13 @@ const App = ({ client, session }) => {
   });
   const [lastBackupAt, setLastBackupAt] = useState(() => localStorage.getItem('lastBackupAt'));
   const [reminderSnoozedUntil, setReminderSnoozedUntil] = useState(() => Number(localStorage.getItem('backupReminderSnoozedUntil') || 0));
+  const [alertRules, setAlertRules] = useState([]);
+  const [alertSymbol, setAlertSymbol] = useState(null);
+  const [alertLog, setAlertLog] = useState([]);
+  const [pushState, setPushState] = useState('off');
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState('');
+  const [settingsSection, setSettingsSection] = useState(null);
   const [cardSortKey, setCardSortKey] = useState('name');
   const [cardSortDir, setCardSortDir] = useState('asc');
 
@@ -213,6 +223,72 @@ const App = ({ client, session }) => {
       window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }
   }, []);
+
+  // ── Push-Regeln und Abo ─────────────────────────────────────
+
+  const rulesBySymbol = useMemo(() => groupRules(alertRules), [alertRules]);
+  const alertSymbols = useMemo(() => new Set(alertRules.filter(r => r.enabled).map(r => r.symbol)), [alertRules]);
+
+  const refreshPushState = useCallback(async () => {
+    try { setPushState(await pushStatus()); } catch { setPushState('unsupported'); }
+  }, []);
+
+  useEffect(() => {
+    loadRules(client).then(setAlertRules).catch((e) => console.error('Regeln konnten nicht geladen werden', e));
+    // Abo erneuern, falls der Browser es verworfen hat (iOS), danach Status anzeigen
+    syncPushSubscription(client).catch((e) => console.warn('Push-Abo nicht erneuert', e)).finally(refreshPushState);
+  }, [client, refreshPushState]);
+
+  useEffect(() => {
+    if (!showSettings) return;
+    refreshPushState();
+    loadAlertLog(client).then(setAlertLog).catch((e) => console.error(e));
+  }, [showSettings, client, refreshPushState]);
+
+  const handleEnablePush = async () => {
+    setPushBusy(true);
+    setPushError('');
+    try {
+      await enablePush(client);
+    } catch (e) {
+      console.error(e);
+      setPushError(e.message || 'Benachrichtigungen konnten nicht aktiviert werden.');
+    } finally {
+      setPushBusy(false);
+      refreshPushState();
+    }
+  };
+
+  const handleDisablePush = async () => {
+    setPushBusy(true);
+    setPushError('');
+    try {
+      await disablePush(client);
+    } catch (e) {
+      console.error(e);
+      setPushError('Deaktivieren fehlgeschlagen.');
+    } finally {
+      setPushBusy(false);
+      refreshPushState();
+    }
+  };
+
+  const handleTestNotification = () => {
+    showTestNotification().catch((e) => setPushError(`Anzeige fehlgeschlagen: ${e.message}`));
+  };
+
+  const handleSaveRules = async (rows) => {
+    const saved = await saveRules(client, rows);
+    setAlertRules(prev => {
+      const keep = prev.filter(r => !saved.some(n => n.symbol === r.symbol && n.type === r.type));
+      return [...keep, ...saved];
+    });
+  };
+
+  const openSettings = (section = null) => {
+    setSettingsSection(section);
+    setShowSettings(true);
+  };
 
   // ── Daten aus Supabase ───────────────────────────────────────
 
@@ -490,7 +566,7 @@ const App = ({ client, session }) => {
   const settingsSnapshot = () => ({ colorSettings, viewMode, fontScale, fontFamily, refreshInterval });
 
   const handleExportBackup = () => {
-    const backup = buildBackup({ accounts, settings: settingsSnapshot() });
+    const backup = buildBackup({ accounts, settings: settingsSnapshot(), alertRules: rulesForBackup(alertRules) });
     downloadFile(`stock-dashboard-${toIsoDate(new Date())}.json`, JSON.stringify(backup, null, 2), 'application/json');
     const now = new Date().toISOString();
     setLastBackupAt(now);
@@ -515,6 +591,15 @@ const App = ({ client, session }) => {
         if (typeof s.fontFamily === 'string') setFontFamily(s.fontFamily);
         if (Number.isFinite(s.refreshInterval)) setRefreshInterval(Math.min(3600, Math.max(60, s.refreshInterval)));
         setError(null);
+        const types = new Set(RULE_TYPES.map(t => t.type));
+        const rules = data.alertRules.filter(r => r && typeof r.symbol === 'string' && types.has(r.type))
+          .map(r => ({ symbol: r.symbol.toUpperCase(), type: r.type, params: r.params || {}, enabled: Boolean(r.enabled) }));
+        if (rules.length) {
+          handleSaveRules(rules).catch((e) => {
+            console.error(e);
+            setError('Depots wiederhergestellt, Benachrichtigungsregeln aber nicht (Server nicht erreichbar).');
+          });
+        }
       } catch (err) {
         setError(err.message);
       }
@@ -653,7 +738,7 @@ const App = ({ client, session }) => {
           <Upload size={16} />
           <input type="file" accept=".csv,text/csv" onChange={handleImportCsv} className="hidden" />
         </label>
-        <button onClick={() => setShowSettings(true)} className={iconButton} title="Einstellungen">
+        <button onClick={() => openSettings()} className={iconButton} title="Einstellungen">
           <SettingsIcon size={16} />
         </button>
       </div>
@@ -713,6 +798,8 @@ const App = ({ client, session }) => {
               onPeriodChange={handlePeriodChange}
               onShowDetail={setDetailSymbol}
               onMoveCopy={setMoveCopySymbol}
+              onAlerts={setAlertSymbol}
+              hasAlerts={alertSymbols.has(symbol)}
               accounts={accounts}
               activeAccountId={activeAccountId}
             />
@@ -733,6 +820,8 @@ const App = ({ client, session }) => {
             onRemove={removeStock}
             onShowDetail={setDetailSymbol}
             onMoveCopy={setMoveCopySymbol}
+            onAlerts={setAlertSymbol}
+            alertSymbols={alertSymbols}
             accounts={accounts}
             activeAccountId={activeAccountId}
           />
@@ -830,12 +919,34 @@ const App = ({ client, session }) => {
           onExportBackup={handleExportBackup}
           onImportFile={handleImportBackup}
           lastBackupAt={lastBackupAt}
+          initialSection={settingsSection}
+          pushState={pushState}
+          pushBusy={pushBusy}
+          pushError={pushError}
+          onEnablePush={handleEnablePush}
+          onDisablePush={handleDisablePush}
+          onTestNotification={handleTestNotification}
+          alertLog={alertLog}
           fontScale={fontScale}
           onFontScaleChange={setFontScale}
           fontFamily={fontFamily}
           onFontFamilyChange={setFontFamily}
           refreshInterval={refreshInterval}
           onRefreshIntervalChange={setRefreshInterval}
+        />
+      )}
+
+      {alertSymbol && (
+        <AlertDialog
+          symbol={alertSymbol}
+          name={stockData[alertSymbol]?.name}
+          price={stockData[alertSymbol]?.price}
+          purchasePrice={purchasePrices[alertSymbol]}
+          rules={rulesBySymbol[alertSymbol] || {}}
+          pushState={pushState}
+          onSave={handleSaveRules}
+          onClose={() => setAlertSymbol(null)}
+          onOpenSettings={() => { setAlertSymbol(null); openSettings('push'); }}
         />
       )}
 

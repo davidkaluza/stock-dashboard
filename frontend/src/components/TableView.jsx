@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Trash2, ArrowLeftRight } from 'lucide-react';
+import { ArrowDown, ArrowUp, Trash2, ArrowLeftRight, Bell } from 'lucide-react';
 
 const COLUMNS = [
   { key: 'ticker', label: 'Ticker', align: 'text-left' },
@@ -200,6 +200,8 @@ const TableView = ({
   onRemove,
   onShowDetail,
   onMoveCopy,
+  onAlerts,
+  alertSymbols,
   accounts,
   activeAccountId,
 }) => {
@@ -362,6 +364,16 @@ const TableView = ({
                 </td>
                 <td className={`p-2 text-right ${cagr === null ? 'text-muted' : valueClass(cagr)}`}>{displayRendite}</td>
                 <td className="p-2 text-center whitespace-nowrap">
+                  {onAlerts && (
+                    <button
+                      type="button"
+                      onClick={() => onAlerts(symbol)}
+                      aria-label={`${symbol} Benachrichtigungen`}
+                      className={`${alertSymbols?.has(symbol) ? 'text-accent' : 'text-muted'} hover:text-white transition-colors mr-1 no-print`}
+                    >
+                      <Bell size={12} aria-hidden="true" fill={alertSymbols?.has(symbol) ? 'currentColor' : 'none'} />
+                    </button>
+                  )}
                   {accounts && accounts.length > 1 && (
                     <button
                       type="button"

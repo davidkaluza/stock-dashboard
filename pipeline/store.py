@@ -76,6 +76,13 @@ class SupabaseStore:
             self._check(self.session.post(f"{self.base}/{table}", params=params, headers=headers, data=body, timeout=self.timeout))
         return len(rows)
 
+    def update(self, table: str, values: dict, **filters: str) -> None:
+        if not filters:
+            raise ValueError("update ohne Filter ist nicht erlaubt")
+        body = json.dumps(clean(values), allow_nan=False)
+        headers = {"Prefer": "return=minimal"}
+        self._check(self.session.patch(f"{self.base}/{table}", params=filters, headers=headers, data=body, timeout=self.timeout))
+
     def delete(self, table: str, **filters: str) -> None:
         if not filters:
             raise ValueError("delete ohne Filter ist nicht erlaubt")

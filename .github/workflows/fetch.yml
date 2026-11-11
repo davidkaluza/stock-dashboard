@@ -4,17 +4,15 @@ on:
   schedule:
     - cron: "*/30 6-21 * * 1-5"   # alle 30 min, Mo–Fr, ca. 7–23 Uhr deutscher Zeit (UTC)
     - cron: "0 2 * * *"           # nachts: Tageskurse, Fundamentaldaten, Aufräumen
-  repository_dispatch:
-    types: [new-ticker]           # von Supabase bei neuem Ticker (client_payload.symbol)
-  workflow_dispatch:
+  workflow_dispatch:               # manuell oder von Supabase bei neuem Ticker (Modus new, Migration 0002)
     inputs:
       mode:
         description: "Modus"
         type: choice
-        options: [quotes, nightly, new]
+        options: [quotes, nightly, new, test-push]
         default: quotes
       symbols:
-        description: "Symbole für Modus new (Leerzeichen-getrennt)"
+        description: "Symbole für Modus new (Leerzeichen-getrennt; leer = alle noch nicht geladenen)"
         required: false
         default: ""
 
@@ -47,15 +45,10 @@ jobs:
           SCHEDULE: ${{ github.event.schedule }}
           INPUT_MODE: ${{ inputs.mode }}
           INPUT_SYMBOLS: ${{ inputs.symbols }}
-          DISPATCH_SYMBOL: ${{ github.event.client_payload.symbol }}
         run: |
           case "$EVENT" in
             schedule)
               if [ "$SCHEDULE" = "0 2 * * *" ]; then echo "args=nightly" >> "$GITHUB_OUTPUT"; else echo "args=quotes" >> "$GITHUB_OUTPUT"; fi ;;
-            repository_dispatch)
-              # nur Ticker-Zeichen durchlassen
-              SYM=$(printf '%s' "$DISPATCH_SYMBOL" | tr -cd 'A-Za-z0-9.^=_-' | cut -c1-32)
-              echo "args=new $SYM" >> "$GITHUB_OUTPUT" ;;
             workflow_dispatch)
               SYMS=$(printf '%s' "$INPUT_SYMBOLS" | tr -cd 'A-Za-z0-9.^=_ -')
               echo "args=$INPUT_MODE $SYMS" >> "$GITHUB_OUTPUT" ;;
@@ -65,4 +58,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
         run: python -m pipeline.run ${{ steps.mode.outputs.args }}
