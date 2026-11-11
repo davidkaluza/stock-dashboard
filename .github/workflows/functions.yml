@@ -27,7 +27,7 @@ jobs:
 
       - name: lookup deployen
         if: env.SUPABASE_ACCESS_TOKEN != '' && env.PROJECT_REF != ''
-        run: supabase functions deploy lookup --project-ref "$PROJECT_REF"
+        run: supabase functions deploy lookup --project-ref "$PROJECT_REF" --yes
 
       - name: Hinweis
         if: env.SUPABASE_ACCESS_TOKEN == '' || env.PROJECT_REF == ''
