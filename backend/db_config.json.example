@@ -1,1 +1,1 @@
-{"uri": "mongodb://host:27017/stock_dashboard_2", "ttl": 3600, "enabled": false, "offline": false}
+{"uri": "postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres", "ttl": 3600, "enabled": false, "offline": false}

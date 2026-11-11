@@ -246,7 +246,7 @@ const App = () => {
       await saveDbConfig({ offline: !dbConfig.offline });
       await fetchCacheSummary();
     } catch (e) {
-      setError('Offline-Modus konnte nicht umgeschaltet werden. Bitte MongoDB-Verbindung prüfen.');
+      setError('Offline-Modus konnte nicht umgeschaltet werden. Bitte Datenbank-Verbindung prüfen.');
     }
   };
 
@@ -300,7 +300,7 @@ const App = () => {
         await saveDbConfig({ offline: true });
       }
     } catch (e) {
-      setError('Datenbank-Aktualisierung fehlgeschlagen. Prüfe MongoDB, Internet und yfinance.');
+      setError('Datenbank-Aktualisierung fehlgeschlagen. Prüfe Supabase, Internet und yfinance.');
       if (wasOffline) {
         try { await saveDbConfig({ offline: true }); } catch (restoreError) { console.error(restoreError); }
       }
@@ -714,7 +714,7 @@ const App = () => {
           onClick={handleRefreshDatabase}
           disabled={refreshingDb || !dbConfig.connected || !dbConfig.enabled || allWatchlistSymbols.length === 0}
           className="text-muted hover:text-white p-2 transition-colors border border-accent rounded disabled:opacity-40"
-          title="MongoDB mit yfinance-Daten aktualisieren"
+          title="Supabase mit yfinance-Daten aktualisieren"
         >
           <RefreshCw size={16} className={refreshingDb ? 'animate-spin' : ''} />
         </button>
@@ -722,7 +722,7 @@ const App = () => {
           onClick={handleToggleOffline}
           disabled={!dbConfig.connected || !dbConfig.enabled}
           className={`p-2 transition-colors border border-accent rounded disabled:opacity-40 ${dbConfig.offline ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
-          title={dbConfig.offline ? 'Offline-Modus aktiv: nur MongoDB' : 'Online-Modus: Cache + yfinance'}
+          title={dbConfig.offline ? 'Offline-Modus aktiv: nur Supabase' : 'Online-Modus: Cache + yfinance'}
         >
           <Power size={16} />
         </button>
@@ -756,7 +756,7 @@ const App = () => {
       </div>
       <div className="border border-accent rounded p-2 mb-4 text-xs-mono text-muted flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-1 text-white"><Database size={13} /> MongoDB</span>
+          <span className="inline-flex items-center gap-1 text-white"><Database size={13} /> Supabase</span>
           <span className={dbConfig.connected ? 'text-pos' : 'text-neg'}>{dbConfig.connected ? 'verbunden' : 'nicht verbunden'}</span>
           <span>{dbConfig.enabled ? 'Cache aktiv' : 'Cache aus'}</span>
           <span className={dbConfig.offline ? 'text-accent' : 'text-muted'}>{dbConfig.offline ? 'OFFLINE: nur Datenbank' : 'ONLINE: yfinance erlaubt'}</span>
@@ -774,7 +774,7 @@ const App = () => {
           <button
             onClick={() => setCachePanelOpen(prev => !prev)}
             className="ml-auto border border-accent px-2 py-1 rounded text-muted hover:text-white transition-colors"
-            title={cachePanelOpen ? 'MongoDB-Fenster minimieren' : 'MongoDB-Fenster anzeigen'}
+            title={cachePanelOpen ? 'Datenbank-Fenster minimieren' : 'Datenbank-Fenster anzeigen'}
           >
             {cachePanelOpen ? 'Minimieren' : 'Anzeigen'}
           </button>

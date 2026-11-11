@@ -13,36 +13,38 @@ start-local-dev.bat                  # Backend + Frontend parallel (Windows)
 ./deploy/install-systemd.sh          # Debian/Linux: systemd-Services (Hintergrund), Frontend via `serve` (devDependency in package.json), Pfade via __APP_DIR__-Template
 ```
 
-**Single-Server**: `npm run build` → `python main.py` servt das gebaute Frontend statisch + API auf 8001. Dev-Server proxyt nichts. Statische Dateien werden aus `backend/frontend/dist/` ODER `../frontend/dist/` gemountet (erste gefundene, `main.py:784-793`).
+**Single-Server**: `npm run build` → `python main.py` servt das gebaute Frontend statisch + API auf 8001. Dev-Server proxyt nichts. Statische Dateien werden aus `backend/frontend/dist/` ODER `../frontend/dist/` gemountet (erste gefundene, `main.py:823-832`).
 
 ## Tücken
 
 | Was | Wo | Detail |
 |---|---|---|
 | NaN-Patching | `main.py:15-46` | `JSONResponse.render` monket (`clean_nans`), NaN/Inf aus yfinance/pandas vor JSON zu entfernen |
-| WKN-Auflösung | `main.py:342-406` | `WKN_MAP` (~50 Einträge) mapped deutsche WKNs → Ticker. 6-stellige Codes: erst Map, sonst `.DE`-Anhang. Symbole mit `.` oder ≤5 Zeichen gehen raw durch |
-| Suche | `main.py:687-781` | `/search?q=...&limit=10` — Mehrstufig: WKN_MAP → `yf.Search` → `yf.query` → Direkt-Ticker-Fallback. Dedupe per (symbol, exchange) |
+| WKN-Auflösung | `main.py:381-445` | `WKN_MAP` (~50 Einträge) mapped deutsche WKNs → Ticker. 6-stellige Codes: erst Map, sonst `.DE`-Anhang. Symbole mit `.` oder ≤5 Zeichen gehen raw durch |
+| Suche | `main.py:726-820` | `/search?q=...&limit=10` — Mehrstufig: WKN_MAP → `yf.Search` → `yf.query` → Direkt-Ticker-Fallback. Dedupe per (symbol, exchange) |
 | Move/Copy | `App.jsx:444-483` | `handleMoveStock`/`handleCopyStock`; Button (`ArrowLeftRight`) in `StockCard.jsx` + `TableView.jsx`, Dialog in App |
 | `.old`-Leichen | `frontend/src/components/*.jsx.old` | Alte Varianten, ungenutzt. Auch `NewsPanel.jsx` tot (nicht importiert). `backend/main.old.py` nur noch im Git-Index, nicht auf Disk |
 | `.gitignore` | Repo-Root | Ignoriert `node_modules/`, `dist/`, `package-lock.json`, `*.pyc`, `db_config.json` (local), `*.old`, `es_*`. Junk aber noch im Git-Index getrackt (9705 Dateien) — erst `git rm --cached` untracked |
 | Kein `vite.config.js` | — | Nur Vite-Standard (plugin-react, tailwind via postcss). Kein Proxy, keine Aliase |
 | Kein Lint/Test/Typecheck | — | Nur `dev`, `build`, `preview`. Kein Test-Framework, keine CI |
-| db_config.json | `backend/db_config.json` | MongoDB-Einstellungen aus den UI-Settings, in git getrackt. Env-Vars (MONGO_URI/MONGO_ENABLED/CACHE_TTL/OFFLINE_MODE) gewinnen über der Datei |
+| db_config.json | `backend/db_config.json` | DB-Einstellungen aus den UI-Settings, enthält das Supabase-Passwort → nicht in git (Vorlage: `db_config.json.example`). Env-Vars (DATABASE_URL/DB_ENABLED/CACHE_TTL/OFFLINE_MODE) gewinnen über der Datei |
 | Schrift/Farben | `index.html:10`, `index.css:5-10` | JetBrains Mono via Google Fonts. Farben via CSS-Vars (`--bg-background`, `--bg-surface`, `--clr-accent`, `--clr-muted`) |
 
-## MongoDB (optionale Caching-DB)
+## Supabase (optionale Caching-DB)
 
-Lokaler Betrieb ohne Docker — MongoDB läuft extern auf `10.0.0.176`, DB `stock_dashboard_2` (kein Auth). Konfiguration über `backend/db_config.json` oder UI *Einstellungen → Datenbank*:
+Cache in Supabase (PostgreSQL) via `psycopg`. Konfiguration über `backend/db_config.json` oder UI *Einstellungen → Datenbank* mit dem Connection-String aus Supabase → *Connect* → **Session pooler** (IPv4-tauglich; die Direktverbindung ist nur IPv6):
 
 ```bash
-mongodb://10.0.0.176:27017/stock_dashboard_2
+postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
 ```
 
-Nach Verbindung werden alle API-Responses in der `stock_cache`-Collection gecached  
+Beim Verbinden legt das Backend die Tabelle `stock_cache` (`key` PK, `data` jsonb, `fetched_at`, `fetched_at_iso`, `cache_type`) automatisch an. Alle API-Responses werden dort gecached  
 (Standard-TTL 3600s). Bei erneuten Requests wird zuerst der Cache geprüft,  
-dann ggf. von yfinance aktualisiert.
+dann ggf. von yfinance aktualisiert. Ist die DB nicht erreichbar, läuft die App ohne Cache weiter (Reconnect-Versuch höchstens alle 30s).
 
-**Offline-Modus**: In den Settings aktivierbar. Beim Aktivieren werden KEINE yfinance-Abfragen mehr gemacht — nur Cache-Reads, 503 wenn ein Symbol fehlt (`raise_if_offline_without_cache`). Workflow: Watchlist füllen → `POST /db/refresh` („MongoDB aktualisieren") → Offline an.
+Altdaten aus der früheren MongoDB einmalig übernehmen: `cd backend && pip install pymongo && python migrate_mongo_to_supabase.py <mongo-uri> <postgres-uri>`.
+
+**Offline-Modus**: In den Settings aktivierbar. Beim Aktivieren werden KEINE yfinance-Abfragen mehr gemacht — nur Cache-Reads, 503 wenn ein Symbol fehlt (`raise_if_offline_without_cache`). Workflow: Watchlist füllen → `POST /db/refresh` („Supabase aktualisieren") → Offline an.
 
 ## API (localhost:8001)
 
@@ -54,9 +56,9 @@ dann ggf. von yfinance aktualisiert.
 | `GET /news/{symbol}` | Top-5-News |
 | `GET /detail/{symbol}` | Fundamentaldaten (PE, Div, Beta, 52w-Spanne, Sektor) + Analystenziele |
 | `GET /search?q=...&limit=10` | Suche nach Name/Ticker/WKN. Returns `symbol, name, exchange, type` |
-| `GET /db/status` | MongoDB-Verbindungsstatus + TTL |
-| `GET /db/config` | Gespeicherte MongoDB-Einstellungen (uri/ttl/enabled/offline) |
-| `POST /db/config` | MongoDB-URI + TTL setzen (Body: `{"uri":"...","ttl":3600}`) |
+| `GET /db/status` | DB-Verbindungsstatus + TTL |
+| `GET /db/config` | Gespeicherte DB-Einstellungen (uri/ttl/enabled/offline) |
+| `POST /db/config` | Postgres-URI + TTL setzen (Body: `{"uri":"...","ttl":3600}`) |
 | `GET /db/cache/summary?symbols=...` | Cache-Übersicht (Keys/Types pro Symbol, zuletzt abgerufen) |
 | `POST /db/refresh` | Alle Symbole neu von yfinance ziehen (Body: `{"symbols":[...]}`) |
 

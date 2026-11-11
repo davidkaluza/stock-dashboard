@@ -3,5 +3,5 @@ uvicorn
 yfinance
 pandas
 pydantic
-pymongo
+psycopg[binary]
 numpy

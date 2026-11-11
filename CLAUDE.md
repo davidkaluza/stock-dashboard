@@ -20,9 +20,9 @@ Jeder yfinance-Endpoint folgt demselben Ablauf — neue Endpoints sollten ihn ü
 4. `resolve_symbol(symbol)` (WKN → Ticker), dann yfinance-Abfrage.
 5. `cache_set(cache_key, result)` und zurückgeben. Fehler → `HTTPException(404)`.
 
-Alle Cache-Funktionen sind No-Ops, wenn MongoDB nicht verbunden oder deaktiviert ist — die App läuft ohne DB voll weiter. `POST /db/refresh` schaltet den Offline-Modus temporär ab, löscht die betroffenen Cache-Keys und ruft die Endpoint-Funktionen direkt auf (`await get_price(...)` usw.; detail/news/history nur über Flags im Request-Body). Neue Datentypen dort ergänzen, wenn sie offline verfügbar sein sollen.
+Alle Cache-Funktionen sind No-Ops, wenn die Datenbank nicht verbunden oder deaktiviert ist — die App läuft ohne DB voll weiter. `POST /db/refresh` schaltet den Offline-Modus temporär ab, löscht die betroffenen Cache-Keys und ruft die Endpoint-Funktionen direkt auf (`await get_price(...)` usw.; detail/news/history nur über Flags im Request-Body). Neue Datentypen dort ergänzen, wenn sie offline verfügbar sein sollen.
 
-Der Mongo-Zustand liegt in Modul-Globals (`_mongo_db`, `_cache_ttl`, `_cache_enabled`, `_offline_mode`), gesetzt von `connect_mongo()` beim Start und bei `POST /db/config`.
+Der DB-Zustand liegt in Modul-Globals (`_db_conn` — eine einzelne psycopg-Verbindung mit autocommit —, `_cache_ttl`, `_cache_enabled`, `_offline_mode`), gesetzt von `connect_db()` beim Start und bei `POST /db/config`. Alle SQL-Zugriffe laufen über `_cache_execute`, das bei abgebrochener Verbindung einmal neu verbindet; `jsonb` verträgt kein NaN, daher `clean_nans` vor dem Speichern.
 
 Das statische Frontend wird am Dateiende auf `/` gemountet — neue Routen müssen **vor** diesem `app.mount` definiert werden, sonst fängt der StaticFiles-Mount sie ab.
 
@@ -31,3 +31,11 @@ Das statische Frontend wird am Dateiende auf `/` gemountet — neue Routen müss
 `App.jsx` ist der zentrale State-Container (Depots, Daten-Caches, Settings, Auto-Refresh, Move/Copy-Dialog, CSV-Import/Export); die Komponenten in `src/components/` sind weitgehend präsentational und bekommen Daten + Handler per Props. Jeder State-Slice wird separat in `localStorage` persistiert; `accounts` enthält eine Migration vom alten Einzel-Watchlist-Format (`watchlist`/`purchasePrices`/`shareQuantities` als Top-Level-Keys).
 
 UI-Texte und Fehlermeldungen sind deutsch.
+
+### Verifizieren
+
+Da es keine Tests gibt: Frontend-Änderungen mit `cd frontend && npm run build` prüfen (einziger Compile-Check). Backend-Änderungen durch Starten (`python main.py`) und Aufruf des betroffenen Endpoints, z. B. `curl localhost:8001/price/SAP.DE`. Abhängigkeiten: `pip install -r backend/requirements.txt`, `npm install` in `frontend/`.
+
+### Veraltete Doku
+
+`CHANGELOG.md` (v0.1.0) beschreibt Docker (`Dockerfile`, `docker-compose.yml`) und einen Insiderkäufe-Tab (`InsiderBuys.jsx`). Beides existiert nicht mehr, und der Docker-Kommentar über dem Static-Mount in `main.py` ist ebenfalls überholt. Maßgeblich ist der Code, nicht das Changelog.

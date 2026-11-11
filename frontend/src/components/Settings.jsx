@@ -172,7 +172,7 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
                 <div className="border border-accent p-3 flex items-center justify-between">
                   <div>
                     <div className="text-xs-mono uppercase">Offline-Modus</div>
-                    <div className="text-[0.7rem] text-muted">Nur MongoDB lesen, keine yfinance-Zugriffe</div>
+                    <div className="text-[0.7rem] text-muted">Nur Supabase lesen, keine yfinance-Zugriffe</div>
                   </div>
                   <button
                     onClick={() => setDbOffline(!dbOffline)}
@@ -183,14 +183,14 @@ const Settings = ({ colors, onChange, onClose, dbConfig, onDbConfig, API_BASE, f
                 </div>
 
                 <div className="border border-accent p-3">
-                  <div className="text-xs-mono uppercase mb-1">MongoDB URI</div>
-                  <div className="text-[0.7rem] text-muted mb-2">z. B. mongodb://10.0.0.176:27017/stock_dashboard_2</div>
+                  <div className="text-xs-mono uppercase mb-1">Supabase / Postgres URI</div>
+                  <div className="text-[0.7rem] text-muted mb-2">Supabase → Connect → Session pooler, z. B. postgresql://postgres.PROJEKT:PASSWORT@aws-0-eu-central-1.pooler.supabase.com:5432/postgres</div>
                   <input
                     type="text"
                     value={dbUri}
                     onChange={(e) => setDbUri(e.target.value)}
                     className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
-                    placeholder="mongodb://host:27017/dbname"
+                    placeholder="postgresql://user:passwort@host:5432/postgres"
                   />
                 </div>
 
