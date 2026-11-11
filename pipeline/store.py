@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from datetime import date, datetime
 from typing import Any, Iterable, Optional
 
@@ -27,13 +28,19 @@ def clean(obj: Any) -> Any:
     return obj
 
 
+def normalize_url(url: str) -> str:
+    """Project URL ohne Pfad: verträgt auch eine eingetragene REST-Adresse (…supabase.co/rest/v1/)."""
+    url = url.strip().rstrip("/")
+    return re.sub(r"/(rest|functions|auth)/v1$", "", url)
+
+
 class SupabaseStore:
     def __init__(self, url: Optional[str] = None, key: Optional[str] = None, timeout: int = 30):
         url = url or os.environ.get("SUPABASE_URL")
         key = key or os.environ.get("SUPABASE_SERVICE_KEY")
         if not url or not key:
             raise RuntimeError("SUPABASE_URL und SUPABASE_SERVICE_KEY müssen gesetzt sein.")
-        self.base = url.rstrip("/") + "/rest/v1"
+        self.base = normalize_url(url) + "/rest/v1"
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({"apikey": key, "Content-Type": "application/json"})

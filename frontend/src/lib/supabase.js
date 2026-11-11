@@ -1,6 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-const url = import.meta.env.VITE_SUPABASE_URL;
+// Project URL ohne Pfad – verträgt auch eine versehentlich eingetragene REST-Adresse (…supabase.co/rest/v1/)
+export const normalizeUrl = (value) =>
+  String(value || '').trim().replace(/\/+$/, '').replace(/\/(rest|functions|auth)\/v1$/, '');
+
+const url = normalizeUrl(import.meta.env.VITE_SUPABASE_URL);
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 /** false, wenn die App ohne Supabase-Zugangsdaten gebaut wurde */

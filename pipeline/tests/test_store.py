@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from pipeline import store as store_mod
-from pipeline.store import SupabaseStore, clean
+from pipeline.store import SupabaseStore, clean, normalize_url
 
 
 class Resp:
@@ -59,3 +59,10 @@ def test_errors_raise_and_unfiltered_delete_refused(monkeypatch):
         s.select("symbols")
     with pytest.raises(ValueError):
         s.delete("symbols")
+
+
+def test_normalize_url_strips_api_paths():
+    assert normalize_url("https://x.supabase.co") == "https://x.supabase.co"
+    assert normalize_url(" https://x.supabase.co/rest/v1/ ") == "https://x.supabase.co"
+    assert normalize_url("https://x.supabase.co/functions/v1") == "https://x.supabase.co"
+    assert SupabaseStore("https://x.supabase.co/rest/v1/", "sb_secret_abc").base == "https://x.supabase.co/rest/v1"

@@ -3,6 +3,23 @@
 
 export const MAX_RESULTS = 10;
 
+/**
+ * Nur angemeldete Nutzer dürfen suchen. Die Signatur des JWT prüft das Supabase-Gateway
+ * (verify_jwt = true, ungültige Tokens werden dort abgewiesen); hier wird geprüft, dass überhaupt
+ * ein Nutzer-JWT kommt – der öffentliche Schlüssel allein (Rolle anon) reicht nicht.
+ */
+export function isUserRequest(authorization) {
+  const match = /^Bearer\s+([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/.exec(String(authorization || '').trim());
+  if (!match) return false;
+  try {
+    const b64 = match[2].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)));
+    return payload.role === 'authenticated' && typeof payload.sub === 'string' && payload.sub.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // Bloomberg/OpenFIGI-Börsencode → [Yahoo-Endung, Anzeigename].
 // Nur Codes, deren Bedeutung gesichert ist; alles andere wird verworfen.
 export const EXCHANGES = {

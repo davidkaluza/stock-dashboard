@@ -1,8 +1,8 @@
 // Supabase Edge Function `lookup`: Suche nach Name, WKN, ISIN oder Ticker.
-// Aufruf aus der PWA: supabase.functions.invoke('lookup', { body: { q } }) – nur mit gültiger Anmeldung
-// (JWT-Prüfung der Edge Function ist standardmäßig an).
+// Aufruf aus der PWA: supabase.functions.invoke('lookup', { body: { q } }) – nur mit gültiger Anmeldung:
+// Das Gateway prüft die JWT-Signatur (verify_jwt), isUserRequest verlangt zusätzlich ein Nutzer-JWT.
 // Die Logik steckt in logic.js (ohne Deno-APIs, mit vitest getestet).
-import { lookup } from './logic.js';
+import { isUserRequest, lookup } from './logic.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -16,6 +16,7 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Nur POST' }, 405);
+  if (!isUserRequest(req.headers.get('Authorization'))) return json({ error: 'Anmeldung erforderlich' }, 401);
 
   let q = '';
   try {

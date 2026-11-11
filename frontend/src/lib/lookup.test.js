@@ -1,7 +1,7 @@
 // Tests für die Logik der Edge Function supabase/functions/lookup (läuft dort unter Deno).
 import { describe, expect, it, vi } from 'vitest';
 import {
-  classifyQuery, dedupe, figiToYahoo, isValidIsin, lookup, normalizeYahoo, rankFigi,
+  classifyQuery, dedupe, figiToYahoo, isUserRequest, isValidIsin, lookup, normalizeYahoo, rankFigi,
 } from '../../../supabase/functions/lookup/logic.js';
 
 const figi = (ticker, exchCode, name = 'X', securityType = 'Common Stock') => ({ ticker, exchCode, name, securityType, marketSector: 'Equity' });
@@ -115,5 +115,18 @@ describe('lookup', () => {
     const many = Array.from({ length: 15 }, (_, i) => ({ symbol: `S${i}` }));
     const r = await lookup('viele', { fetchFn: () => response({ quotes: many }), limit: 10 });
     expect(r).toHaveLength(10);
+  });
+});
+
+describe('isUserRequest', () => {
+  const b64 = (o) => btoa(JSON.stringify(o)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const jwt = (payload) => `${b64({ alg: 'ES256' })}.${b64(payload)}.c2ln`;
+
+  it('akzeptiert nur Nutzer-JWTs', () => {
+    expect(isUserRequest(`Bearer ${jwt({ role: 'authenticated', sub: 'u1' })}`)).toBe(true);
+    expect(isUserRequest(`Bearer ${jwt({ role: 'anon' })}`)).toBe(false);
+    expect(isUserRequest('Bearer sb_publishable_abc')).toBe(false);
+    expect(isUserRequest(null)).toBe(false);
+    expect(isUserRequest('Bearer a.b.c')).toBe(false);
   });
 });

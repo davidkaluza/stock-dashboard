@@ -68,7 +68,7 @@ where email = 'DEINE@ADRESSE.de';
 
 | | Wo | Aussehen |
 |---|---|---|
-| **a) Project URL** | **Project Settings** (Zahnrad) → **Data API** (bzw. **API**) | `https://abcdefghijklm.supabase.co` |
+| **a) Project URL** | **Project Settings** (Zahnrad) → **Data API** (bzw. **API**) | `https://abcdefghijklm.supabase.co`, **ohne** `/rest/v1` am Ende |
 | **Projekt-ID** | Teil der URL vor `.supabase.co` | `abcdefghijklm` |
 | **b) Publishable key** (öffentlich) | **Project Settings** → **API Keys** → *Publishable key* | `sb_publishable_…` (ältere Projekte: Reiter *Legacy API Keys* → **anon**, `eyJ…`) |
 | **c) Secret key** (geheim) | gleiche Seite → *Secret keys*; ggf. **+ Add new secret key** (Name z. B. `github-action`), mit dem Auge anzeigen | `sb_secret_…` (ältere Projekte: *Legacy* → **service_role**, `eyJ…`) |
