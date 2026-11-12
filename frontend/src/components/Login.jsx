@@ -35,18 +35,18 @@ const Login = ({ client }) => {
     if (error) setMessage('Der Code ist falsch oder abgelaufen.');
   };
 
-  const input = 'w-full bg-background border border-accent text-sm-mono p-2 focus:outline-none focus:border-muted';
-  const button = 'w-full border border-accent bg-accent text-white text-sm-mono uppercase py-2 disabled:opacity-40';
+  const input = 'w-full h-11 rounded-xl bg-surface2 px-3 focus:outline-none focus:ring-2 focus:ring-accent';
+  const button = 'w-full h-11 rounded-xl bg-accent text-accent-fg font-semibold disabled:opacity-40 flex items-center justify-center';
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="w-full max-w-sm border border-accent bg-surface p-6">
-        <h1 className="text-title-mono font-bold uppercase mb-1">Stock Dashboard</h1>
-        <p className="text-xs-mono text-muted mb-6">Anmelden, um Kurse zu laden. Deine Depots bleiben auf diesem Gerät.</p>
+    <div className="min-h-screen flex items-center justify-center px-4 safe-area">
+      <div className="w-full max-w-sm bg-surface rounded-2xl p-6">
+        <h1 className="text-2xl font-bold mb-1">Stock Dashboard</h1>
+        <p className="text-sm text-muted mb-6">Anmelden, um Kurse zu laden. Deine Depots bleiben auf diesem Gerät.</p>
 
         {step === 'email' ? (
           <form onSubmit={sendCode} className="space-y-3">
-            <label className="block text-xs-mono uppercase text-muted">E-Mail</label>
+            <label className="block text-sm text-muted">E-Mail</label>
             <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
             <button type="submit" disabled={busy || !email} className={button}>
               <Mail size={14} className="inline mr-2" />{busy ? 'Sende…' : 'Code senden'}
@@ -54,7 +54,7 @@ const Login = ({ client }) => {
           </form>
         ) : (
           <form onSubmit={verify} className="space-y-3">
-            <label className="block text-xs-mono uppercase text-muted">Code aus der E-Mail an {email}</label>
+            <label className="block text-sm text-muted">Code aus der E-Mail an {email}</label>
             <input
               inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={10} required
               value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
@@ -63,13 +63,13 @@ const Login = ({ client }) => {
             <button type="submit" disabled={busy || code.length < 6} className={button}>
               <KeyRound size={14} className="inline mr-2" />{busy ? 'Prüfe…' : 'Anmelden'}
             </button>
-            <button type="button" onClick={() => { setStep('email'); setCode(''); setMessage(''); }} className="text-xs-mono text-muted hover:text-white">
+            <button type="button" onClick={() => { setStep('email'); setCode(''); setMessage(''); }} className="text-sm text-accent">
               <ArrowLeft size={12} className="inline mr-1" />andere E-Mail / neuer Code
             </button>
           </form>
         )}
 
-        {message && <p className="text-xs-mono text-neg mt-4">{message}</p>}
+        {message && <p className="text-sm text-neg mt-4">{message}</p>}
       </div>
     </div>
   );

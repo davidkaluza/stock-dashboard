@@ -2,30 +2,97 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  /* gleiche Standardwerte wie in App.jsx; gespeicherte Farben setzt theme.js vor dem ersten Rendern */
+/* Farbrollen: fg = Text, muted = gedämpfter Text, line = Trennlinien, surface = Flächen (Zeilen, Blätter),
+   surface2 = Flächen auf Flächen (Eingabefelder, Schalter), accent = nur aktive Elemente.
+   Schema „system“ folgt der iPhone-Einstellung hell/dunkel (iOS-Systemfarben); „gold“ = bisheriges Aussehen;
+   „custom“ setzt theme.js als Inline-Variablen. */
+:root,
+:root[data-theme="system"] {
+  color-scheme: light dark;
+  --bg-background: #F2F2F7;
+  --bg-surface: #FFFFFF;
+  --bg-surface2: #E9E9EE;
+  --bg-sheet: #F2F2F7;   /* Blatt (wie iOS: grau, Gruppen darin weiß) */
+  --bg-group: #FFFFFF;
+  --bg-control: #E3E3E8; /* Schalter aus, kleine Knöpfe in Gruppen */
+  --clr-fg: #000000;
+  --clr-muted: #6C6C70;
+  --clr-line: #C6C6C8;
+  --clr-accent: #007AFF;
+  --clr-accent-fg: #FFFFFF;
+  --clr-pos: #34C759;
+  --clr-neg: #FF3B30;
+  --clr-pos-light: #8FD9A3;
+  --clr-neg-light: #FF9F99;
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root,
+  :root[data-theme="system"] {
+    --bg-background: #000000;
+    --bg-surface: #1C1C1E;
+    --bg-surface2: #2C2C2E;
+    --bg-sheet: #1C1C1E;   /* im Dunkelmodus hebt sich das Blatt heller vom Schwarz ab */
+    --bg-group: #2C2C2E;
+    --bg-control: #3A3A3C;
+    --clr-fg: #FFFFFF;
+    --clr-muted: #8E8E93;
+    --clr-line: #38383A;
+    --clr-accent: #0A84FF;
+    --clr-pos: #30D158;
+    --clr-neg: #FF453A;
+    --clr-pos-light: #7BC48F;
+    --clr-neg-light: #E58A84;
+  }
+}
+
+:root[data-theme="gold"],
+:root[data-theme="custom"] {
+  color-scheme: dark;
   --bg-background: #33312B;
-  --bg-surface: #33312B;
+  --bg-surface: #3D3A33;
+  --bg-surface2: #48443C;
+  --bg-sheet: #3D3A33;
+  --bg-group: #48443C;
+  --bg-control: #5A5548;
+  --clr-fg: #FFFFFF;
+  --clr-muted: #9A968C;
+  --clr-line: #5A5548;
   --clr-accent: #C09537;
-  --clr-muted: #888888;
+  --clr-accent-fg: #FFFFFF;
   --clr-pos: #22c55e;
   --clr-neg: #ef4444;
   --clr-pos-light: #86efac;
   --clr-neg-light: #fca5a5;
-  --font-family: 'JetBrains Mono', monospace;
 }
 
 body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-family: var(--font-family, 'JetBrains Mono', monospace);
+  font-family: var(--font-family);
+  font-variant-numeric: tabular-nums; /* Ziffern gleich breit: Kurse stehen sauber untereinander */
+  background: var(--bg-background);
+  color: var(--clr-fg);
   overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
+
+/* iOS zoomt beim Antippen von Feldern mit < 16 px Schrift automatisch hinein */
+input, select, textarea { font-size: max(16px, 1em); }
+
+/* Blatt von unten */
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.sheet-enter { animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.backdrop-enter { animation: fade-in 0.2s ease-out; }
+@media (min-width: 768px) { .sheet-enter { animation: fade-in 0.15s ease-out; } }
+@media (prefers-reduced-motion: reduce) { .sheet-enter, .backdrop-enter { animation: none; } }
 
 /* iPhone: Inhalt nicht unter Notch / Home-Indikator (installierte App, viewport-fit=cover) */
 .safe-area {
-  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-top: max(0.75rem, env(safe-area-inset-top));
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
   padding-left: max(1rem, env(safe-area-inset-left));
   padding-right: max(1rem, env(safe-area-inset-right));
@@ -40,12 +107,8 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--clr-accent);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--clr-accent);
-  filter: brightness(1.2);
+  background: var(--clr-line);
+  border-radius: 2px;
 }
 
 @media print {

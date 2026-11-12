@@ -12,7 +12,7 @@ const sanitizeSymbol = (value) =>
     .toUpperCase();
 
 // `search(query, signal)` liefert [{symbol, name, exchange, type}]; ohne `search` nur direkte Ticker-Eingabe.
-const AddStock = ({ onAdd, search, className = '' }) => {
+const AddStock = ({ onAdd, search, className = '', autoFocus = false }) => {
   const [query, setQuery] = useState('');
   const [candidates, setCandidates] = useState([]);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -157,37 +157,40 @@ const AddStock = ({ onAdd, search, className = '' }) => {
             }
           }}
           onKeyDown={handleKeyDown}
-          placeholder={search ? 'FIRMA, WKN, ISIN ODER TICKER …' : 'TICKER, Z. B. SAP.DE ODER AAPL'}
+          placeholder={search ? 'Name, WKN, ISIN oder Ticker' : 'Ticker, z. B. SAP.DE'}
           aria-label="Firma, WKN, ISIN oder Ticker eingeben"
           aria-autocomplete="list"
           aria-expanded={isOpen}
           aria-controls="stock-search-results"
           autoComplete="off"
-          autoCapitalize="characters"
+          autoCapitalize="none"
+          autoCorrect="off"
           spellCheck={false}
-          className="bg-surface border border-accent text-xs-mono p-2 pr-8 flex-grow w-full focus:outline-none focus:border-muted transition-colors uppercase"
+          autoFocus={autoFocus}
+          enterKeyHint="search"
+          className="w-full h-11 rounded-xl bg-group px-3 pr-9 focus:outline-none focus:ring-2 focus:ring-accent"
         />
 
         <Search
           size={14}
           aria-hidden="true"
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted"
+          className="absolute right-3 top-[22px] -translate-y-1/2 text-muted pointer-events-none"
         />
 
         {isOpen && (
           <div
             id="stock-search-results"
             role="listbox"
-            className="absolute z-50 mt-1 w-full bg-surface border border-accent shadow-lg max-h-72 overflow-y-auto"
+            className="mt-3 w-full bg-group rounded-xl overflow-hidden divide-y divide-line"
           >
             {isLoading && (
-              <div className="p-2 text-xs-mono text-muted">
+              <div className="px-4 py-3 text-sm text-muted">
                 Suche läuft…
               </div>
             )}
 
             {!isLoading && searchError && (
-              <div className="p-2 text-xs-mono text-neg">
+              <div className="px-4 py-3 text-sm text-neg">
                 {searchError}
               </div>
             )}
@@ -197,7 +200,7 @@ const AddStock = ({ onAdd, search, className = '' }) => {
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => addSymbol(cleanedSymbol)}
-                className="w-full text-left p-2 text-xs-mono bg-background hover:bg-background transition-colors"
+                className="w-full text-left px-4 py-2.5 active:bg-control"
               >
                 <div className="font-bold">{cleanedSymbol}</div>
                 <div className="text-muted truncate">Direkt als Ticker hinzufügen</div>
@@ -220,8 +223,8 @@ const AddStock = ({ onAdd, search, className = '' }) => {
                   onMouseEnter={() => setActiveIndex(index)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => addSymbol(symbol)}
-                  className={`w-full text-left p-2 text-xs-mono bg-background transition-colors ${
-                    isActive ? 'bg-accent text-white' : 'hover:bg-accent/80 text-white'
+                  className={`w-full text-left px-4 py-2.5 transition-colors ${
+                    isActive ? 'bg-accent text-accent-fg' : 'active:bg-control md:hover:bg-control'
                   }`}
                 >
                   <div className="font-bold">
@@ -247,7 +250,7 @@ const AddStock = ({ onAdd, search, className = '' }) => {
         type="submit"
         aria-label="Aktie hinzufügen"
         disabled={!canSubmit}
-        className="bg-accent hover:bg-muted text-white p-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="h-11 w-11 shrink-0 rounded-xl bg-accent text-accent-fg flex items-center justify-center disabled:opacity-40"
       >
         <Plus size={16} aria-hidden="true" />
       </button>

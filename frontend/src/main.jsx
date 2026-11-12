@@ -22,12 +22,12 @@ class ErrorBoundary extends React.Component {
         <div className="w-full p-8 font-mono">
           <h1 className="text-lg font-bold mb-2">Fehler</h1>
           <p className="mb-2">Die Anwendung ist abgestürzt:</p>
-          <pre className="text-xs whitespace-pre-wrap border border-accent p-3">
+          <pre className="text-xs whitespace-pre-wrap border border-line rounded-lg p-3">
             {String(this.state.error.message || this.state.error)}
           </pre>
           <button
             onClick={() => location.reload()}
-            className="mt-4 border border-accent px-3 py-1.5 hover:opacity-80"
+            className="mt-4 border border-line rounded-lg px-3 py-1.5 hover:opacity-80"
           >
             Neu laden
           </button>

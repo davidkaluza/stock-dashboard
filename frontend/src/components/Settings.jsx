@@ -1,384 +1,190 @@
-import React, { useEffect, useState } from 'react';
-import { X, RotateCcw, Minus, Plus, Palette, Type, RefreshCw, User, LogOut, Download, Upload, Bell, BellOff, Share } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { Check, Download, Upload, LogOut, Bell, BellOff, Share, Minus, Plus, RotateCcw } from 'lucide-react';
+import Sheet, { Group, Row } from './Sheet';
+import { DEFAULT_CUSTOM_COLORS, SCHEMES, SYSTEM_FONT } from '../lib/theme';
 
-const DEFAULTS = {
-  background: '#33312B',
-  surface: '#33312B',
-  accent: '#C09537',
-  muted: '#888888',
-  pos: '#22c55e',
-  neg: '#ef4444',
-  posLight: '#86efac',
-  negLight: '#fca5a5',
-};
-
-const FIELDS = [
-  { key: 'background', label: 'Hintergrund', desc: 'Seitenhintergrund' },
-  { key: 'surface', label: 'Karten', desc: 'Karten & Oberflächen' },
-  { key: 'accent', label: 'Akzent', desc: 'Rahmen, Buttons, Hervorhebungen' },
-  { key: 'muted', label: 'Muted', desc: 'deaktivierte Texte & Linien' },
-  { key: 'pos', label: 'Positiv', desc: 'Gewinne & positive Werte' },
-  { key: 'neg', label: 'Negativ', desc: 'Verluste & negative Werte' },
-  { key: 'posLight', label: 'Positiv hell', desc: 'Zeitraum vor Kaufdatum (positiv)' },
-  { key: 'negLight', label: 'Negativ hell', desc: 'Zeitraum vor Kaufdatum (negativ)' },
-];
-
-const NAV = [
-  { id: 'account', label: 'Konto', icon: User },
-  { id: 'push', label: 'Push', icon: Bell },
-  { id: 'colors', label: 'Farben', icon: Palette },
-  { id: 'font', label: 'Schrift', icon: Type },
-  { id: 'refresh', label: 'Aktualisierung', icon: RefreshCw },
+const COLOR_FIELDS = [
+  { key: 'background', label: 'Hintergrund' },
+  { key: 'surface', label: 'Flächen' },
+  { key: 'accent', label: 'Akzent' },
+  { key: 'muted', label: 'Gedämpft / Linien' },
+  { key: 'pos', label: 'Positiv' },
+  { key: 'neg', label: 'Negativ' },
+  { key: 'posLight', label: 'Positiv hell (vor Kauf)' },
+  { key: 'negLight', label: 'Negativ hell (vor Kauf)' },
 ];
 
 const FONTS = [
-  { label: 'JetBrains Mono', value: "'JetBrains Mono', monospace" },
-  { label: 'IBM Plex Mono', value: "'IBM Plex Mono', monospace" },
-  { label: 'Space Mono', value: "'Space Mono', monospace" },
+  { label: 'System (iPhone)', value: SYSTEM_FONT },
   { label: 'Inter', value: "'Inter', sans-serif" },
   { label: 'Roboto', value: "'Roboto', sans-serif" },
-  { label: 'Lato', value: "'Lato', sans-serif" },
+  { label: 'JetBrains Mono', value: "'JetBrains Mono', monospace" },
+  { label: 'IBM Plex Mono', value: "'IBM Plex Mono', monospace" },
   { label: 'Space Grotesk', value: "'Space Grotesk', sans-serif" },
-  { label: 'Georgia (Serif)', value: "Georgia, serif" },
 ];
 
-const FONT_SIZES = [12, 14, 16, 18, 20, 22];
-
-const PX_TO_SCALE = (px) => Math.max(80, Math.min(140, Math.round((px * 100) / 16)));
+const REFRESH = [60, 300, 900, 1800];
 const SCALE_TO_PX = (scale) => Math.round((scale * 16) / 100);
+const PX_TO_SCALE = (px) => Math.max(80, Math.min(140, Math.round((px * 100) / 16)));
 
-const Settings = ({ colors, onChange, onClose, initialSection, email, onSignOut, onExportBackup, onImportFile, lastBackupAt, pushState, pushBusy, pushError, onEnablePush, onDisablePush, onTestNotification, alertLog = [], fontScale = 100, onFontScaleChange, fontFamily = "'JetBrains Mono', monospace", onFontFamilyChange, refreshInterval = 300, onRefreshIntervalChange }) => {
-  const [collapsed, setCollapsed] = useState(() => new Set(['colors', 'font', 'refresh']));
+const item = 'w-full flex items-center gap-3 px-4 min-h-[44px] py-2 text-left active:bg-control md:hover:bg-control';
 
-  const fontSizePx = SCALE_TO_PX(fontScale);
+const PUSH_TEXT = {
+  on: ['Aktiv – Meldungen kommen auf diesem Gerät an.', 'text-pos'],
+  off: ['Aus. Die Regeln legst du pro Aktie über die Glocke im Detail fest.', 'text-muted'],
+  denied: ['Im Browser bzw. in den iOS-Einstellungen für diese App blockiert.', 'text-neg'],
+  unsupported: ['Dieser Browser unterstützt keine Web-Push-Nachrichten.', 'text-neg'],
+  'not-configured': ['Push ist noch nicht eingerichtet (VITE_VAPID_PUBLIC_KEY fehlt).', 'text-neg'],
+};
 
-  const handleChange = (key, val) => {
-    onChange({ ...colors, [key]: val });
-  };
-
-  const toggleSection = (id) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const focusSection = (id) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    requestAnimationFrame(() => {
-      document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
-
+const Settings = ({
+  colorScheme = 'system', onColorScheme, colors, onChange, onClose, initialSection,
+  email, onSignOut, onExportBackup, onImportFile, lastBackupAt,
+  pushState, pushBusy, pushError, onEnablePush, onDisablePush, onTestNotification, alertLog = [],
+  fontScale = 100, onFontScaleChange, fontFamily = SYSTEM_FONT, onFontFamilyChange,
+  refreshInterval = 300, onRefreshIntervalChange,
+}) => {
+  const pushRef = useRef(null);
   useEffect(() => {
-    if (initialSection) focusSection(initialSection);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (initialSection === 'push') requestAnimationFrame(() => pushRef.current?.scrollIntoView({ block: 'start' }));
   }, [initialSection]);
 
-  const Section = ({ id, title, icon: Icon, children }) => {
-    const isCollapsed = collapsed.has(id);
-    return (
-      <section id={`settings-${id}`} className="scroll-mt-20">
-        <div
-          className="flex items-center justify-between border border-accent p-3 cursor-pointer select-none"
-          onClick={() => toggleSection(id)}
-        >
-          <div className="flex items-center gap-2">
-            <Icon size={14} className="text-accent" />
-            <h3 className="text-xs-mono font-bold uppercase">{title}</h3>
-          </div>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); toggleSection(id); }}
-            aria-expanded={!isCollapsed}
-            aria-label={`${title} ${isCollapsed ? 'einblenden' : 'ausblenden'}`}
-            className="text-muted hover:text-white transition-colors"
-          >
-            {isCollapsed ? <Plus size={14} aria-hidden="true" /> : <Minus size={14} aria-hidden="true" />}
-          </button>
-        </div>
-        {!isCollapsed && <div className="mt-3">{children}</div>}
-      </section>
-    );
-  };
+  const fontPx = SCALE_TO_PX(fontScale);
+  const [pushText, pushClass] = PUSH_TEXT[pushState] || ['', ''];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/70" onClick={onClose}>
-      <div className="bg-surface border border-accent w-full max-w-[480px] mx-4 relative max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        {/* ── Fixierter Kopf: Titel + Leiste ── */}
-        <div className="sticky top-0 z-20 bg-surface border-b border-accent px-6 pt-6 pb-3">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-title-mono font-bold uppercase">Einstellungen</h2>
-            <button onClick={onClose} className="text-muted hover:text-white transition-colors">
-              <X size={18} />
+    <Sheet title="Einstellungen" onClose={onClose}>
+      {/* Konto & Sicherung */}
+      <Group title="Konto">
+        <Row label="Angemeldet" value={email || '—'} />
+        <button onClick={onSignOut} className={`${item} text-neg`}><LogOut size={18} /> Abmelden</button>
+      </Group>
+
+      <Group title="Sicherung">
+        <p className="px-4 py-3 text-sm text-muted">
+          Depots, Kaufdaten, Einstellungen und Benachrichtigungsregeln. Damit überträgst du alles auf ein anderes Gerät.
+          {lastBackupAt ? ` Letzte Sicherung: ${new Date(lastBackupAt).toLocaleDateString('de-DE')}.` : ' Noch keine Sicherung.'}
+        </p>
+        <button onClick={onExportBackup} className={`${item} text-accent`}><Download size={18} /> Sichern (JSON)</button>
+        <label className={`${item} text-accent cursor-pointer`}>
+          <Upload size={18} /> Wiederherstellen
+          <input type="file" accept=".json,application/json" onChange={onImportFile} className="hidden" />
+        </label>
+      </Group>
+
+      {/* Benachrichtigungen */}
+      <div ref={pushRef} className="scroll-mt-4">
+        <Group title="Benachrichtigungen">
+          {pushState === 'needs-install' ? (
+            <div className="px-4 py-3 text-sm space-y-1">
+              <p className="text-accent">Auf dem iPhone/iPad funktionieren Benachrichtigungen nur in der installierten App (ab iOS 16.4):</p>
+              <p className="text-muted">1. In Safari auf <Share size={13} className="inline -mt-0.5" /> <strong>Teilen</strong> tippen</p>
+              <p className="text-muted">2. <strong>Zum Home-Bildschirm</strong> wählen</p>
+              <p className="text-muted">3. Die App über das neue Symbol öffnen, anmelden und hier aktivieren</p>
+            </div>
+          ) : (
+            <p className={`px-4 py-3 text-sm ${pushClass}`}>{pushText}</p>
+          )}
+          {pushState === 'off' && (
+            <button onClick={onEnablePush} disabled={pushBusy} className={`${item} text-accent disabled:opacity-40`}>
+              <Bell size={18} /> {pushBusy ? 'Aktiviere…' : 'Auf diesem Gerät aktivieren'}
             </button>
-          </div>
+          )}
+          {pushState === 'on' && (
+            <>
+              <button onClick={onTestNotification} className={`${item} text-accent`}><Bell size={18} /> Test-Anzeige</button>
+              <button onClick={onDisablePush} disabled={pushBusy} className={`${item} text-neg disabled:opacity-40`}><BellOff size={18} /> Deaktivieren</button>
+            </>
+          )}
+          {pushError && <p className="px-4 py-2 text-sm text-neg">{pushError}</p>}
+        </Group>
+        {pushState === 'on' && (
+          <p className="text-xs text-muted px-1 -mt-3 mb-5">
+            „Test-Anzeige“ prüft nur die Darstellung. Den echten Versand testest du auf GitHub: Actions → Kurse abrufen → Run workflow → test-push.
+          </p>
+        )}
 
-          <div className="flex border border-accent">
-            {NAV.map(n => (
-              <button
-                key={n.id}
-                onClick={() => focusSection(n.id)}
-                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-[0.7rem] uppercase text-muted hover:text-white transition-colors border-r border-accent last:border-r-0"
-                title={n.label}
-              >
-                <n.icon size={12} /> {n.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-6">
-          {/* ── Konto & Sicherung ── */}
-          <div className="mb-4">
-            <Section id="account" title="Konto & Sicherung" icon={User}>
-              <div className="space-y-3">
-                <div className="border border-accent p-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-xs-mono uppercase">Angemeldet</div>
-                    <div className="text-[0.7rem] text-muted truncate">{email || '—'}</div>
-                  </div>
-                  <button
-                    onClick={onSignOut}
-                    className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors"
-                  >
-                    <LogOut size={14} /> Abmelden
-                  </button>
-                </div>
-
-                <div className="border border-accent p-3">
-                  <div className="text-xs-mono uppercase mb-1">Sicherung (JSON)</div>
-                  <div className="text-[0.7rem] text-muted mb-2">
-                    Depots, Kaufdaten und Einstellungen liegen nur auf diesem Gerät. Mit der Sicherung überträgst du sie auf ein
-                    anderes Gerät oder stellst sie wieder her.
-                    {lastBackupAt ? ` Letzte Sicherung: ${new Date(lastBackupAt).toLocaleDateString('de-DE')}.` : ' Noch keine Sicherung erstellt.'}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={onExportBackup}
-                      className="flex-1 flex items-center justify-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors"
-                    >
-                      <Download size={14} /> Sichern
-                    </button>
-                    <label className="flex-1 flex items-center justify-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors cursor-pointer">
-                      <Upload size={14} /> Wiederherstellen
-                      <input type="file" accept=".json,application/json" onChange={onImportFile} className="hidden" />
-                    </label>
-                  </div>
-                </div>
+        <Group title="Zuletzt gesendet">
+          {alertLog.length === 0 ? (
+            <p className="px-4 py-3 text-sm text-muted">Noch keine Meldungen.</p>
+          ) : alertLog.map((entry) => (
+            <div key={entry.id} className="px-4 py-2">
+              <div className="flex justify-between gap-2 text-[0.95rem]">
+                <span className="truncate">{entry.title}</span>
+                <span className="text-muted text-sm whitespace-nowrap">
+                  {new Date(entry.sent_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
               </div>
-            </Section>
-          </div>
-
-          {/* ── Benachrichtigungen ── */}
-          <div className="border-t border-accent pt-4 mb-4">
-            <Section id="push" title="Benachrichtigungen" icon={Bell}>
-              <div className="space-y-3">
-                <div className="border border-accent p-3">
-                  <div className="text-xs-mono uppercase mb-1">Dieses Gerät</div>
-                  {pushState === 'on' && <p className="text-[0.7rem] text-pos mb-2">Aktiv – Meldungen kommen auf diesem Gerät an.</p>}
-                  {pushState === 'off' && <p className="text-[0.7rem] text-muted mb-2">Aus. Die Regeln legst du pro Aktie über das Glocken-Symbol fest.</p>}
-                  {pushState === 'denied' && <p className="text-[0.7rem] text-neg mb-2">Im Browser blockiert. In den Browser- bzw. iOS-Einstellungen für diese App wieder erlauben.</p>}
-                  {pushState === 'unsupported' && <p className="text-[0.7rem] text-neg mb-2">Dieser Browser unterstützt keine Web-Push-Nachrichten.</p>}
-                  {pushState === 'not-configured' && <p className="text-[0.7rem] text-neg mb-2">Push ist noch nicht eingerichtet (VITE_VAPID_PUBLIC_KEY fehlt, siehe Anleitung).</p>}
-                  {pushState === 'needs-install' && (
-                    <div className="text-[0.7rem] text-muted mb-2 space-y-1">
-                      <p className="text-accent">Auf dem iPhone/iPad funktionieren Benachrichtigungen nur in der installierten App (ab iOS 16.4):</p>
-                      <p>1. In Safari unten auf <Share size={11} className="inline" /> <strong>Teilen</strong> tippen</p>
-                      <p>2. <strong>Zum Home-Bildschirm</strong> wählen</p>
-                      <p>3. Die App über das neue Symbol öffnen, anmelden und hier aktivieren</p>
-                    </div>
-                  )}
-                  <div className="flex gap-2">
-                    {(pushState === 'off' || pushState === 'on') && (
-                      pushState === 'off' ? (
-                        <button onClick={onEnablePush} disabled={pushBusy} className="flex-1 flex items-center justify-center gap-2 text-xs-mono bg-accent text-white border border-accent px-3 py-1.5 disabled:opacity-40">
-                          <Bell size={14} /> {pushBusy ? 'Aktiviere…' : 'Aktivieren'}
-                        </button>
-                      ) : (
-                        <button onClick={onDisablePush} disabled={pushBusy} className="flex-1 flex items-center justify-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 disabled:opacity-40">
-                          <BellOff size={14} /> Deaktivieren
-                        </button>
-                      )
-                    )}
-                    {pushState === 'on' && (
-                      <button onClick={onTestNotification} className="flex-1 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5">
-                        Test-Anzeige
-                      </button>
-                    )}
-                  </div>
-                  {pushError && <p className="text-[0.7rem] text-neg mt-2">{pushError}</p>}
-                  {pushState === 'on' && (
-                    <p className="text-[0.7rem] text-muted mt-2">
-                      „Test-Anzeige“ prüft nur die Darstellung. Den echten Versand testest du auf GitHub unter Actions → Kurse abrufen → Run workflow → Modus test-push.
-                    </p>
-                  )}
-                </div>
-
-                <div className="border border-accent p-3">
-                  <div className="text-xs-mono uppercase mb-2">Zuletzt gesendet</div>
-                  {alertLog.length === 0 ? (
-                    <p className="text-[0.7rem] text-muted">Noch keine Meldungen.</p>
-                  ) : (
-                    <ul className="space-y-1.5 max-h-60 overflow-y-auto">
-                      {alertLog.map((entry) => (
-                        <li key={entry.id} className="text-[0.7rem] border-b border-accent/30 pb-1 last:border-b-0">
-                          <div className="flex justify-between gap-2">
-                            <span className="text-white">{entry.title}</span>
-                            <span className="text-muted whitespace-nowrap">
-                              {new Date(entry.sent_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-                          {entry.body && <div className="text-muted truncate">{entry.body}</div>}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            </Section>
-          </div>
-
-          {/* ── Farben ── */}
-          <div className="border-t border-accent pt-4 mb-4">
-            <Section id="colors" title="Farben" icon={Palette}>
-              <div className="space-y-3">
-                {FIELDS.map(f => (
-                  <div key={f.key} className="flex items-center justify-between border border-accent p-3">
-                    <div>
-                      <div className="text-xs-mono uppercase">{f.label}</div>
-                      <div className="text-[0.7rem] text-muted">{f.desc}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={colors[f.key] || DEFAULTS[f.key]}
-                        onChange={(e) => handleChange(f.key, e.target.value)}
-                        className="w-20 bg-background border border-accent text-xs-mono p-1 focus:outline-none focus:border-muted transition-colors uppercase font-mono"
-                        placeholder="#000000"
-                        maxLength={7}
-                      />
-                      <input
-                        type="color"
-                        value={colors[f.key] || DEFAULTS[f.key]}
-                        onChange={(e) => handleChange(f.key, e.target.value)}
-                        className="w-10 h-8 p-0 border-0 cursor-pointer bg-transparent"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={() => onChange({ ...DEFAULTS })}
-                className="flex items-center gap-2 text-xs-mono text-muted hover:text-white border border-accent px-3 py-1.5 transition-colors mt-3"
-              >
-                <RotateCcw size={14} /> Standard
-              </button>
-            </Section>
-          </div>
-
-          {/* ── Schriftgröße + Schriftart ── */}
-          <div className="border-t border-accent pt-4 mb-4">
-            <Section id="font" title="Schrift" icon={Type}>
-              <div className="border border-accent p-3 mb-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <div className="text-xs-mono uppercase">Größe</div>
-                    <div className="text-[0.7rem] text-muted">Aktuell {fontSizePx}px</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => onFontScaleChange?.(PX_TO_SCALE(fontSizePx - 1))}
-                      className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
-                      title="Schrift kleiner"
-                    >
-                      -
-                    </button>
-                    <button
-                      onClick={() => onFontScaleChange?.(100)}
-                      className="h-8 border border-accent px-2 text-[0.7rem] text-muted hover:text-white transition-colors"
-                      title="Auf Standardgröße setzen"
-                    >
-                      {SCALE_TO_PX(100)}px
-                    </button>
-                    <button
-                      onClick={() => onFontScaleChange?.(PX_TO_SCALE(fontSizePx + 1))}
-                      className="w-8 h-8 border border-accent text-muted hover:text-white transition-colors"
-                      title="Schrift größer"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {FONT_SIZES.map(px => (
-                    <button
-                      key={px}
-                      onClick={() => onFontScaleChange?.(PX_TO_SCALE(px))}
-                      className={`h-7 px-2 text-[0.7rem] border border-accent transition-colors ${fontSizePx === px ? 'text-white' : 'text-muted hover:text-white'}`}
-                    >
-                      {px}px
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border border-accent p-3">
-                <div className="text-xs-mono uppercase mb-1">Schriftart</div>
-                <div className="text-[0.7rem] text-muted mb-2">Wird auf die gesamte Oberfläche angewendet</div>
-                <select
-                  value={fontFamily}
-                  onChange={(e) => onFontFamilyChange?.(e.target.value)}
-                  className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors"
-                >
-                  {FONTS.map(f => (
-                    <option key={f.label} value={f.value} className="bg-background">{f.label}</option>
-                  ))}
-                </select>
-              </div>
-            </Section>
-          </div>
-
-          {/* ── Aktualisierung ── */}
-          <div className="border-t border-accent pt-4">
-            <Section id="refresh" title="Aktualisierung" icon={RefreshCw}>
-              <div className="border border-accent p-3">
-                <div className="text-xs-mono uppercase mb-1">Auto-Aktualisierung</div>
-                <div className="text-[0.7rem] text-muted mb-2">Die App lädt alle {refreshInterval}s die neuesten Kurse aus der Datenbank. Die Datenbank selbst wird alle 30 min aktualisiert.</div>
-                <input
-                  type="number"
-                  min={60}
-                  max={3600}
-                  step={30}
-                  value={refreshInterval}
-                  onChange={(e) => onRefreshIntervalChange?.(parseInt(e.target.value, 10) || 300)}
-                  className="w-full bg-background border border-accent text-xs-mono p-1.5 focus:outline-none focus:border-muted transition-colors font-mono"
-                />
-                <div className="flex gap-2 mt-2">
-                  {[60, 300, 900, 1800].map(v => (
-                    <button
-                      key={v}
-                      onClick={() => onRefreshIntervalChange?.(v)}
-                      className={`h-7 px-2 text-[0.7rem] border border-accent transition-colors ${refreshInterval === v ? 'text-white' : 'text-muted hover:text-white'}`}
-                      title={`Alle ${v / 60}m`}
-                    >
-                      {v < 60 ? `${v}s` : `${v / 60}m`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </Section>
-          </div>
-        </div>
+              {entry.body && <div className="text-sm text-muted truncate">{entry.body}</div>}
+            </div>
+          ))}
+        </Group>
       </div>
-    </div>
+
+      {/* Darstellung */}
+      <Group title="Farbschema">
+        {SCHEMES.map((s) => (
+          <button key={s.id} onClick={() => onColorScheme(s.id)} className={item}>
+            <span className="flex-1">
+              <span className="block">{s.label}</span>
+              <span className="block text-sm text-muted">{s.hint}</span>
+            </span>
+            {colorScheme === s.id && <Check size={18} className="text-accent" />}
+          </button>
+        ))}
+      </Group>
+
+      {colorScheme === 'custom' && (
+        <Group title="Eigene Farben">
+          {COLOR_FIELDS.map((f) => (
+            <label key={f.key} className="flex items-center justify-between gap-3 px-4 min-h-[44px]">
+              <span className="text-[0.95rem]">{f.label}</span>
+              <input
+                type="color"
+                value={colors[f.key] || DEFAULT_CUSTOM_COLORS[f.key]}
+                onChange={(e) => onChange({ ...colors, [f.key]: e.target.value })}
+                className="h-8 w-12 rounded-md bg-transparent border-0 cursor-pointer"
+              />
+            </label>
+          ))}
+          <button onClick={() => onChange({ ...DEFAULT_CUSTOM_COLORS })} className={`${item} text-accent`}><RotateCcw size={16} /> Zurücksetzen</button>
+        </Group>
+      )}
+
+      <Group title="Schrift">
+        <div className="flex items-center justify-between gap-3 px-4 min-h-[44px]">
+          <span className="text-[0.95rem]">Größe</span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => onFontScaleChange?.(PX_TO_SCALE(fontPx - 1))} className="h-9 w-9 rounded-lg bg-control flex items-center justify-center" aria-label="Kleiner"><Minus size={16} /></button>
+            <span className="w-12 text-center">{fontPx} px</span>
+            <button onClick={() => onFontScaleChange?.(PX_TO_SCALE(fontPx + 1))} className="h-9 w-9 rounded-lg bg-control flex items-center justify-center" aria-label="Größer"><Plus size={16} /></button>
+          </div>
+        </div>
+        {FONTS.map((f) => (
+          <button key={f.value} onClick={() => onFontFamilyChange?.(f.value)} className={item} style={{ fontFamily: f.value }}>
+            <span className="flex-1">{f.label}</span>
+            {fontFamily === f.value && <Check size={18} className="text-accent" />}
+          </button>
+        ))}
+      </Group>
+
+      <Group title="Aktualisierung">
+        <p className="px-4 py-3 text-sm text-muted">
+          Wie oft die App die neuesten Kurse aus der Datenbank lädt. Die Datenbank selbst wird Mo–Fr alle 30 Minuten aktualisiert.
+        </p>
+        <div className="flex gap-2 p-2">
+          {REFRESH.map((v) => (
+            <button
+              key={v}
+              onClick={() => onRefreshIntervalChange?.(v)}
+              className={`flex-1 h-9 rounded-lg text-sm font-medium ${refreshInterval === v ? 'bg-accent text-accent-fg' : 'bg-control text-muted'}`}
+            >
+              {v < 3600 ? `${v / 60} min` : '1 h'}
+            </button>
+          ))}
+        </div>
+      </Group>
+    </Sheet>
   );
 };
 

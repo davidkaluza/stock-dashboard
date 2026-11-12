@@ -1,20 +1,22 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import StockCard from './components/StockCard';
-import AddStock from './components/AddStock';
+import StockRow from './components/StockRow';
+import StockSheet from './components/StockSheet';
 import TableView from './components/TableView';
-import StockDetail from './components/StockDetail';
+import { DepotSheet, MenuSheet, MoveSheet, SearchSheet } from './components/AppSheets';
 import Settings from './components/Settings';
 import AlertDialog from './components/AlertDialog';
-import { LayoutGrid, Table, Download, Upload, Printer, Plus, Trash2, Pencil, Settings as SettingsIcon, ArrowUp, ArrowDown, ArrowLeftRight, Copy, X, RefreshCw, ShieldAlert } from 'lucide-react';
+import { ArrowUp, ChevronDown, MoreHorizontal, Plus, Trash2, ShieldAlert } from 'lucide-react';
 import { fetchSnapshot, fetchDailyPrices, formatFetchedAt } from './lib/market';
-import { CARD_HISTORY_DAYS, DEFAULT_PERIOD, daysAgo, filterHistory, hasHistoryFor, periodStart, toIsoDate } from './lib/history';
+import { CARD_HISTORY_DAYS, daysAgo, hasHistoryFor, periodStart, toIsoDate } from './lib/history';
+import { BADGE_LABELS, fmtNum, fmtPct, fmtSigned, nextBadgeMode, signOf } from './lib/format';
+import { applyFont, applyTheme, loadThemeSettings } from './lib/theme';
 import { collectSymbols, normalizeSymbol, syncTickers } from './lib/tickers';
 import { createSearch } from './lib/search';
 import { RULE_TYPES, groupRules, loadAlertLog, loadRules, rulesForBackup, saveRules } from './lib/alerts';
 import { disablePush, enablePush, pushStatus, showTestNotification, syncPushSubscription } from './lib/push';
 import { buildBackup, buildCsv, downloadFile, emptyAccount, mergeCsvIntoAccounts, parseBackup, parseCsv } from './lib/backup';
 
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.3.0';
 
 const PENDING_POLL_SECONDS = 60;          // solange Ticker auf die Action warten
 const BACKUP_REMINDER_DAYS = 30;
@@ -67,26 +69,25 @@ const App = ({ client, session }) => {
   const [stockData, setStockData] = useState(() => loadJson('stockData', {}));
   const [statsData, setStatsData] = useState(() => loadJson('statsData', {}));
   const [dailyPrices, setDailyPrices] = useState(() => loadJson('dailyPrices', {})); // {symbol: {since, loadedOn, rows}}
-  const [chartPeriods, setChartPeriods] = useState({});
   const [error, setError] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem('viewMode') || 'cards');
+  const [viewMode, setViewMode] = useState(() => (localStorage.getItem('viewMode') === 'table' ? 'table' : 'list'));
+  const [badgeMode, setBadgeMode] = useState(() => localStorage.getItem('badgeMode') || 'day');
+  const [openSheet, setOpenSheet] = useState(null); // 'depots' | 'menu' | 'search'
+  const [themeInit] = useState(loadThemeSettings);
+  const [colorScheme, setColorScheme] = useState(themeInit.colorScheme);
   const [detailSymbol, setDetailSymbol] = useState(null);
   const [moveCopySymbol, setMoveCopySymbol] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [colorSettings, setColorSettings] = useState(() => ({
-    background: '#33312B', surface: '#33312B', accent: '#C09537', muted: '#888888',
-    pos: '#22c55e', neg: '#ef4444', posLight: '#86efac', negLight: '#fca5a5',
-    ...loadJson('colorSettings', {}),
-  }));
+  const [colorSettings, setColorSettings] = useState(themeInit.colorSettings);
   const [fontScale, setFontScale] = useState(() => {
     const saved = parseInt(localStorage.getItem('fontScale') || '100', 10);
     return Number.isFinite(saved) ? Math.min(140, Math.max(80, saved)) : 100;
   });
-  const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('fontFamily') || "'JetBrains Mono', monospace");
+  const [fontFamily, setFontFamily] = useState(themeInit.fontFamily);
   const [refreshInterval, setRefreshInterval] = useState(() => {
-    const saved = parseInt(localStorage.getItem('refreshInterval') || '300', 10);
+    const saved = parseInt(localStorage.getItem('refreshInterval') || '300', 10);  // Sekunden
     return Number.isFinite(saved) ? Math.min(3600, Math.max(60, saved)) : 300;
   });
   const [lastBackupAt, setLastBackupAt] = useState(() => localStorage.getItem('lastBackupAt'));
@@ -122,7 +123,7 @@ const App = ({ client, session }) => {
       setCardSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
       setCardSortKey(key);
-      setCardSortDir('asc');
+      setCardSortDir(key === 'name' ? 'asc' : 'desc');
     }
   };
 
@@ -145,6 +146,9 @@ const App = ({ client, session }) => {
       switch (cardSortKey) {
         case 'price':
           va = priceA; vb = priceB;
+          break;
+        case 'day':
+          va = dataA?.change_percent ?? -Infinity; vb = dataB?.change_percent ?? -Infinity;
           break;
         case 'value':
           va = priceA * qtyA; vb = priceB * qtyB;
@@ -172,16 +176,9 @@ const App = ({ client, session }) => {
   // ── Darstellung ──────────────────────────────────────────────
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.style.setProperty('--bg-background', colorSettings.background);
-    root.style.setProperty('--bg-surface', colorSettings.surface);
-    root.style.setProperty('--clr-accent', colorSettings.accent);
-    root.style.setProperty('--clr-muted', colorSettings.muted);
-    root.style.setProperty('--clr-pos', colorSettings.pos);
-    root.style.setProperty('--clr-neg', colorSettings.neg);
-    root.style.setProperty('--clr-pos-light', colorSettings.posLight);
-    root.style.setProperty('--clr-neg-light', colorSettings.negLight);
-  }, [colorSettings]);
+    applyTheme(colorScheme, colorSettings);
+    safeSetItem('colorScheme', colorScheme);
+  }, [colorScheme, colorSettings]);
 
   useEffect(() => {
     const clamped = Math.min(140, Math.max(80, fontScale));
@@ -190,9 +187,11 @@ const App = ({ client, session }) => {
   }, [fontScale]);
 
   useEffect(() => {
-    document.documentElement.style.setProperty('--font-family', fontFamily);
+    applyFont(fontFamily);
     safeSetItem('fontFamily', fontFamily);
   }, [fontFamily]);
+
+  useEffect(() => { safeSetItem('badgeMode', badgeMode); }, [badgeMode]);
 
   // ── Speichern (nur lokal) ────────────────────────────────────
 
@@ -392,13 +391,6 @@ const App = ({ client, session }) => {
     loadDaily([symbol], since).catch((e) => console.error(e));
   }, [purchaseDates, loadDaily]);
 
-  const handlePeriodChange = useCallback((symbol, period) => {
-    setChartPeriods(prev => ({ ...prev, [symbol]: period }));
-    ensureHistory(symbol, period);
-  }, [ensureHistory]);
-
-  const cardHistory = (symbol) =>
-    filterHistory(dailyPrices[symbol]?.rows, chartPeriods[symbol] || DEFAULT_PERIOD, new Date(), purchaseDates[symbol]);
 
   // ── Depots bearbeiten ────────────────────────────────────────
 
@@ -514,27 +506,21 @@ const App = ({ client, session }) => {
     ));
   };
   const updatePurchasePrice = (symbol, price) => updateAccountField('purchasePrices', symbol, parseFloat(price) || 0);
-  const updateShareQuantity = (symbol, qty) => updateAccountField('shareQuantities', symbol, parseInt(qty, 10) || 0);
+  const updateShareQuantity = (symbol, qty) => updateAccountField('shareQuantities', symbol, parseFloat(qty) || 0);
   const updatePurchaseDate = (symbol, date) => updateAccountField('purchaseDates', symbol, date || '');
 
-  const addAccount = () => {
-    const name = window.prompt('Neues Depot anlegen:\nName:', `Depot ${accounts.length + 1}`);
-    if (!name) return;
+  const addAccount = (name) => {
     const id = 'acc_' + Date.now();
     setAccounts(prev => [...prev, emptyAccount(id, name)]);
     setActiveTab(id);
   };
 
-  const renameAccount = () => {
-    if (!activeAccount) return;
-    const name = window.prompt('Depot umbenennen:', activeAccount.name);
-    if (!name || name === activeAccount.name) return;
+  const renameAccount = (name) => {
     setAccounts(prev => prev.map(a => a.id === activeAccountId ? { ...a, name } : a));
   };
 
   const deleteAccount = () => {
     if (!activeAccount || accounts.length < 2) return;
-    if (!window.confirm(`Depot "${activeAccount.name}" löschen?`)) return;
     const remaining = accounts.filter(a => a.id !== activeAccountId);
     setAccounts(remaining);
     setActiveTab(remaining[0]?.id || 'default');
@@ -563,7 +549,7 @@ const App = ({ client, session }) => {
     reader.readAsText(file);
   };
 
-  const settingsSnapshot = () => ({ colorSettings, viewMode, fontScale, fontFamily, refreshInterval });
+  const settingsSnapshot = () => ({ colorScheme, colorSettings, viewMode, badgeMode, fontScale, fontFamily, refreshInterval });
 
   const handleExportBackup = () => {
     const backup = buildBackup({ accounts, settings: settingsSnapshot(), alertRules: rulesForBackup(alertRules) });
@@ -586,7 +572,9 @@ const App = ({ client, session }) => {
         setActiveTab(data.accounts[0].id);
         const s = data.settings;
         if (s.colorSettings) setColorSettings(prev => ({ ...prev, ...s.colorSettings }));
-        if (s.viewMode === 'cards' || s.viewMode === 'table') setViewMode(s.viewMode);
+        if (['system', 'gold', 'custom'].includes(s.colorScheme)) setColorScheme(s.colorScheme);
+        if (s.viewMode) setViewMode(s.viewMode === 'table' ? 'table' : 'list');
+        if (['day', 'pl', 'value'].includes(s.badgeMode)) setBadgeMode(s.badgeMode);
         if (Number.isFinite(s.fontScale)) setFontScale(s.fontScale);
         if (typeof s.fontFamily === 'string') setFontFamily(s.fontFamily);
         if (Number.isFinite(s.refreshInterval)) setRefreshInterval(Math.min(3600, Math.max(60, s.refreshInterval)));
@@ -645,168 +633,95 @@ const App = ({ client, session }) => {
   const pendingCount = allWatchlistSymbols.filter(s => stockData[s]?.status === 'pending' || !stockData[s]).length;
   const unknownSymbols = allWatchlistSymbols.filter(s => stockData[s]?.status === 'unknown');
 
-  const iconButton = 'text-muted hover:text-white p-2 transition-colors border border-accent rounded';
+  const removeAndClose = (symbol) => {
+    removeStock(symbol);
+    setDetailSymbol(null);
+  };
+
+  const iconButton = 'h-11 w-11 flex items-center justify-center rounded-full text-accent active:bg-surface2';
+  const detailStock = detailSymbol ? { symbol: detailSymbol, ...(stockData[detailSymbol] || { status: 'pending' }) } : null;
 
   return (
-    <div className="w-full px-4 py-4 md:px-6 md:py-6 safe-area">
-      <header className="mb-4 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-end">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tighter uppercase">Stock Dashboard {APP_VERSION}</h1>
-        </div>
-        <div className="text-right">
-          <div className="text-sm-mono">
-            <span className="text-muted">Port:</span>{' '}
-            <span className={portfolioSummary.pl >= 0 ? 'text-pos' : 'text-neg'}>
-              {portfolioSummary.totalCurrent.toFixed(2)}{' '}
-              ({portfolioSummary.pl >= 0 ? '+' : ''}{portfolioSummary.pl.toFixed(2)}/{portfolioSummary.plPct.toFixed(2)}%)
-            </span>
-          </div>
+    <div className="w-full max-w-6xl mx-auto safe-area">
+      {/* Kopf: Depot als Titel, Suche, Menü */}
+      <header className="flex items-center gap-1 mb-1 no-print">
+        <button
+          onClick={() => setOpenSheet('depots')}
+          className="min-w-0 flex items-center gap-1 text-[1.75rem] font-bold leading-tight tracking-tight py-1 text-left"
+          aria-label="Depot wechseln"
+        >
+          <span className="truncate">{activeAccount?.name || 'Depot'}</span>
+          <ChevronDown size={22} className="shrink-0 text-muted mt-1" />
+        </button>
+        <div className="ml-auto flex items-center shrink-0">
+          <button onClick={() => setOpenSheet('search')} className={iconButton} aria-label="Aktie hinzufügen"><Plus size={24} /></button>
+          <button onClick={() => setOpenSheet('menu')} className={iconButton} aria-label="Menü"><MoreHorizontal size={24} /></button>
         </div>
       </header>
 
+      {/* Depotsumme */}
+      <div className="mb-4 no-print">
+        <div className="text-2xl font-semibold">{fmtNum(portfolioSummary.totalCurrent)}</div>
+        <div className={`text-[0.95rem] font-medium ${signOf(portfolioSummary.pl) > 0 ? 'text-pos' : signOf(portfolioSummary.pl) < 0 ? 'text-neg' : 'text-muted'}`}>
+          {fmtSigned(portfolioSummary.pl)} ({fmtPct(portfolioSummary.plPct)}) seit Kauf
+        </div>
+        <div className="text-sm text-muted mt-0.5 flex flex-wrap gap-x-2">
+          <span>{formatFetchedAt(newestFetch) || 'Noch keine Kurse'}</span>
+          {pendingCount > 0 && <span className="text-accent">· {pendingCount} wird geladen</span>}
+          {unknownSymbols.length > 0 && <span className="text-neg">· unbekannt: {unknownSymbols.join(', ')}</span>}
+        </div>
+      </div>
+
+      {error && <p className="text-neg text-sm mb-3 px-1">{error}</p>}
+
       {showBackupReminder && (
-        <div className="border border-accent rounded p-2 mb-4 text-xs-mono flex flex-wrap items-center gap-2">
-          <ShieldAlert size={14} className="text-accent" />
-          <span className="flex-1 min-w-[12rem]">
-            Deine Depots liegen nur auf diesem Gerät.{' '}
-            {lastBackupAt ? `Letzte Sicherung vor über ${BACKUP_REMINDER_DAYS} Tagen.` : 'Es gibt noch keine Sicherung.'}
+        <div className="bg-surface rounded-xl p-3 mb-4 text-sm flex items-center gap-3 no-print">
+          <ShieldAlert size={20} className="text-accent shrink-0" />
+          <span className="flex-1">
+            {lastBackupAt ? `Letzte Sicherung vor über ${BACKUP_REMINDER_DAYS} Tagen.` : 'Deine Depots liegen nur auf diesem Gerät.'}
           </span>
-          <button onClick={handleExportBackup} className="border border-accent bg-accent text-white px-2 py-1 rounded">Jetzt sichern</button>
-          <button onClick={snoozeReminder} className="text-muted hover:text-white px-2 py-1">Später</button>
+          <button onClick={handleExportBackup} className="h-9 px-3 rounded-lg bg-accent text-accent-fg font-medium shrink-0">Sichern</button>
+          <button onClick={snoozeReminder} className="h-9 px-2 text-muted shrink-0">Später</button>
         </div>
       )}
 
-      <div className="flex items-center gap-1 border border-accent rounded p-1 mb-4 overflow-x-auto">
-        {accounts.map(a => (
-          <button
-            key={a.id}
-            onClick={() => setActiveTab(a.id)}
-            className={`text-xs-mono px-3 py-1.5 uppercase transition-colors whitespace-nowrap ${activeAccountId === a.id ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
-          >
-            {a.name}
-          </button>
-        ))}
-        <div className="flex items-center gap-1 ml-auto border-l border-accent pl-2">
-          <button onClick={addAccount} className="text-muted hover:text-white transition-colors" title="Neues Depot">
-            <Plus size={14} />
-          </button>
-          {activeAccount && (
+      {viewMode === 'list' ? (
+        <>
+          {stocks.length === 0 ? (
+            <div className="bg-surface rounded-xl px-4 py-10 text-center text-muted">
+              <p className="mb-3">Noch keine Aktien in diesem Depot.</p>
+              <button onClick={() => setOpenSheet('search')} className="h-11 px-4 rounded-xl bg-accent text-accent-fg font-medium">Aktie hinzufügen</button>
+            </div>
+          ) : (
             <>
-              <button onClick={renameAccount} className="text-muted hover:text-white transition-colors" title="Umbenennen">
-                <Pencil size={12} />
-              </button>
-              {accounts.length > 1 && (
-                <button onClick={deleteAccount} className="text-muted hover:text-neg transition-colors" title="Depot löschen">
-                  <Trash2 size={12} />
+              <div className="flex items-center justify-between px-1 mb-1.5 text-[0.8rem] uppercase tracking-wide text-muted">
+                <span>{stocks.length} Aktien</span>
+                <button onClick={() => setBadgeMode(nextBadgeMode(badgeMode))} className="uppercase tracking-wide">
+                  {BADGE_LABELS[badgeMode]}
                 </button>
-              )}
+              </div>
+              <ul className="bg-surface rounded-xl overflow-hidden divide-y divide-line md:divide-y-0 md:grid md:grid-cols-2 md:[&>li]:border-b md:[&>li]:border-line md:[&>li:nth-child(odd)]:border-r">
+                {sortedStocks.map(symbol => (
+                  <StockRow
+                    key={symbol}
+                    symbol={symbol}
+                    stock={{ symbol, ...(stockData[symbol] || { status: 'pending' }) }}
+                    rows={dailyPrices[symbol]?.rows}
+                    qty={shareQuantities[symbol]}
+                    buyPrice={purchasePrices[symbol]}
+                    buyDate={purchaseDates[symbol]}
+                    badgeMode={badgeMode}
+                    onBadge={() => setBadgeMode(nextBadgeMode(badgeMode))}
+                    onOpen={setDetailSymbol}
+                    hasAlerts={alertSymbols.has(symbol)}
+                  />
+                ))}
+              </ul>
             </>
           )}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="flex border border-accent rounded">
-          <button
-            onClick={() => setViewMode('cards')}
-            className={`p-2 transition-colors ${viewMode === 'cards' ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
-            title="Kartenansicht"
-          >
-            <LayoutGrid size={16} />
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`p-2 transition-colors ${viewMode === 'table' ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
-            title="Tabellenansicht"
-          >
-            <Table size={16} />
-          </button>
-        </div>
-        <AddStock onAdd={addStock} search={search} className="flex-1 min-w-[14rem]" />
-        <button onClick={loadSnapshot} disabled={loadingData} className={`${iconButton} disabled:opacity-40`} title="Kurse neu laden">
-          <RefreshCw size={16} className={loadingData ? 'animate-spin' : ''} />
-        </button>
-        <button onClick={handleExportCsv} className={iconButton} title="Export CSV">
-          <Download size={16} />
-        </button>
-        {viewMode === 'table' && (
-          <button onClick={() => window.print()} className={`${iconButton} no-print`} title="Drucken (A4)">
-            <Printer size={16} />
-          </button>
-        )}
-        <label className={`${iconButton} cursor-pointer`} title="Import CSV">
-          <Upload size={16} />
-          <input type="file" accept=".csv,text/csv" onChange={handleImportCsv} className="hidden" />
-        </label>
-        <button onClick={() => openSettings()} className={iconButton} title="Einstellungen">
-          <SettingsIcon size={16} />
-        </button>
-      </div>
-
-      <div className="text-xs-mono text-muted mb-4 flex flex-wrap gap-x-3 gap-y-1">
-        <span>{formatFetchedAt(newestFetch) || 'Noch keine Kurse in der Datenbank'}</span>
-        {lastLoadedAt && <span>geladen {lastLoadedAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>}
-        {pendingCount > 0 && <span className="text-accent">{pendingCount} Ticker warten auf den ersten Abruf</span>}
-        {unknownSymbols.length > 0 && <span className="text-neg">unbekannt: {unknownSymbols.join(', ')}</span>}
-      </div>
-
-      {error && <p className="text-neg text-xs-mono mb-4">{error}</p>}
-
-      {viewMode === 'cards' && (
-        <div className="flex gap-2 mb-4 flex-wrap">
-          {[
-            { key: 'name', label: 'Name' },
-            { key: 'price', label: 'Kurs' },
-            { key: 'value', label: 'Wert' },
-            { key: 'rendite', label: 'Rendite' },
-            { key: 'days', label: 'Tage' },
-          ].map(opt => (
-            <button
-              key={opt.key}
-              onClick={() => handleCardSort(opt.key)}
-              className={`text-xs-mono px-2 py-1 border rounded transition-colors ${cardSortKey === opt.key ? 'bg-accent text-white border-accent' : 'text-muted border-accent hover:text-white hover:border-muted'}`}
-            >
-              {opt.label}
-              {cardSortKey === opt.key && (
-                cardSortDir === 'asc' ? <ArrowUp size={10} className="inline ml-1" /> : <ArrowDown size={10} className="inline ml-1" />
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {viewMode === 'cards' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-1">
-          {stocks.length === 0 && (
-            <div className="col-span-full text-center p-10 border border-dashed border-accent text-muted text-xs-mono">
-              DEPOT LEER. OBEN EINEN TICKER HINZUFÜGEN ODER EINE SICHERUNG EINSPIELEN.
-            </div>
-          )}
-          {sortedStocks.map(symbol => (
-            <StockCard
-              key={symbol}
-              stock={{ symbol, ...(stockData[symbol] || { status: 'pending' }) }}
-              history={cardHistory(symbol)}
-              stats={statsData[symbol] || { performance: {} }}
-              purchasePrice={purchasePrices[symbol] || 0}
-              shareQuantity={shareQuantities[symbol] || 0}
-              purchaseDate={purchaseDates[symbol] || ''}
-              onUpdatePurchasePrice={updatePurchasePrice}
-              onUpdateShareQuantity={updateShareQuantity}
-              onUpdatePurchaseDate={updatePurchaseDate}
-              onRemove={removeStock}
-              onPeriodChange={handlePeriodChange}
-              onShowDetail={setDetailSymbol}
-              onMoveCopy={setMoveCopySymbol}
-              onAlerts={setAlertSymbol}
-              hasAlerts={alertSymbols.has(symbol)}
-              accounts={accounts}
-              activeAccountId={activeAccountId}
-            />
-          ))}
-        </div>
+        </>
       ) : (
-        <div id="print-area">
+        <div id="print-area" className="bg-surface rounded-xl overflow-x-auto">
           <TableView
             stocks={sortedStocks}
             stockData={stockData}
@@ -828,89 +743,117 @@ const App = ({ client, session }) => {
         </div>
       )}
 
-      {moveCopySymbol && accounts.length > 1 && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/70" onClick={() => setMoveCopySymbol(null)}>
-          <div className="bg-surface border border-accent w-full max-w-[400px] mx-4 p-6 relative" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-title-mono font-bold uppercase">{moveCopySymbol} verschieben/kopieren</h2>
-              <button onClick={() => setMoveCopySymbol(null)} className="text-muted hover:text-white transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="space-y-2">
-              {accounts.filter(a => a.id !== activeAccountId).map(target => (
-                <div key={target.id} className="border border-accent p-3 flex items-center justify-between">
-                  <span className="text-xs-mono">{target.name}</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleMoveStock(moveCopySymbol, target.id)}
-                      className="text-xs-mono px-2 py-1 border border-accent text-muted hover:text-white hover:border-muted transition-colors flex items-center gap-1"
-                    >
-                      <ArrowLeftRight size={12} /> Verschieben
-                    </button>
-                    <button
-                      onClick={() => handleCopyStock(moveCopySymbol, target.id)}
-                      className="text-xs-mono px-2 py-1 border border-accent text-muted hover:text-white hover:border-muted transition-colors flex items-center gap-1"
-                    >
-                      <Copy size={12} /> Kopieren
-                    </button>
+      {oldShares.length > 0 && (
+        <details className="mt-6 group no-print">
+          <summary className="list-none cursor-pointer select-none px-1 mb-1.5 text-[0.8rem] uppercase tracking-wide text-muted flex items-center gap-1">
+            <ChevronDown size={14} className="-rotate-90 group-open:rotate-0 transition-transform" /> Alte Positionen ({oldShares.length})
+          </summary>
+          <ul className="bg-surface rounded-xl overflow-hidden divide-y divide-line">
+            {oldShares.map(entry => (
+              <li key={entry.id} className="flex items-center gap-3 px-4 min-h-[56px] py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold truncate">{entry.name || entry.symbol}</div>
+                  <div className="text-sm text-muted truncate">
+                    {entry.symbol} · {fmtNum(entry.qty, entry.qty % 1 ? 2 : 0)} Stk. · Kauf {fmtNum(entry.buyPrice)} · zuletzt {fmtNum(entry.lastPrice)}
+                    {entry.removedAt ? ` · entfernt ${new Date(entry.removedAt).toLocaleDateString('de-DE')}` : ''}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
+                <button onClick={() => restoreOldShare(entry)} className="h-10 w-10 flex items-center justify-center text-accent" aria-label="Reaktivieren"><ArrowUp size={18} /></button>
+                <button onClick={() => deleteOldShare(entry.id)} className="h-10 w-10 flex items-center justify-center text-neg" aria-label="Endgültig löschen"><Trash2 size={18} /></button>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
-      {oldShares.length > 0 && (
-        <details className="mt-8 border border-accent">
-          <summary className="text-xs-mono text-muted uppercase p-2 cursor-pointer hover:text-white transition-colors select-none">
-            Alte Positionen ({oldShares.length})
-          </summary>
-          <div className="overflow-x-auto">
-            <table className="w-full text-table-mono border-collapse">
-              <thead>
-                <tr className="border-b border-accent text-muted uppercase">
-                  <th className="text-left p-2 font-normal">Symbol</th>
-                  <th className="text-left p-2 font-normal">Name</th>
-                  <th className="text-center p-2 font-normal">Anzahl</th>
-                  <th className="text-center p-2 font-normal">Kaufkurs</th>
-                  <th className="text-center p-2 font-normal">Kaufdatum</th>
-                  <th className="text-right p-2 font-normal">Letzter Kurs</th>
-                  <th className="text-right p-2 font-normal">Entfernt am</th>
-                  <th className="w-16 p-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {oldShares.map(entry => (
-                  <tr key={entry.id} className="border-b border-accent">
-                    <td className="p-2 font-bold">{entry.symbol}</td>
-                    <td className="p-2 text-muted">{entry.name}</td>
-                    <td className="p-2 text-center">{entry.qty || '-'}</td>
-                    <td className="p-2 text-center">{entry.buyPrice || '-'}</td>
-                    <td className="p-2 text-center">{entry.buyDate || '-'}</td>
-                    <td className="p-2 text-right">{entry.lastPrice || '-'}</td>
-                    <td className="p-2 text-right text-muted text-[0.72rem]">
-                      {entry.removedAt ? new Date(entry.removedAt).toLocaleDateString() : '-'}
-                    </td>
-                    <td className="p-2 text-center whitespace-nowrap">
-                      <button onClick={() => restoreOldShare(entry)} className="text-muted hover:text-pos transition-colors mr-2" title="Reaktivieren">
-                        <ArrowUp size={12} />
-                      </button>
-                      <button onClick={() => deleteOldShare(entry.id)} className="text-muted hover:text-neg transition-colors" title="Endgültig löschen">
-                        <Trash2 size={12} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
+      <footer className="mt-8 mb-2 text-xs text-muted text-center no-print">
+        Kurse von Yahoo Finance, ca. 15 min verzögert · Aktualisierung alle 30 min (Mo–Fr)
+        {lastLoadedAt ? ` · geladen ${lastLoadedAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : ''}
+        <br />Depotdaten bleiben auf diesem Gerät · Version {APP_VERSION}
+      </footer>
+
+      {/* ── Blätter ── */}
+      {openSheet === 'depots' && (
+        <DepotSheet
+          accounts={accounts}
+          activeId={activeAccountId}
+          onSelect={setActiveTab}
+          onAdd={addAccount}
+          onRename={renameAccount}
+          onDelete={deleteAccount}
+          onClose={() => setOpenSheet(null)}
+        />
+      )}
+      {openSheet === 'menu' && (
+        <MenuSheet
+          sortKey={cardSortKey}
+          sortDir={cardSortDir}
+          onSort={handleCardSort}
+          viewMode={viewMode}
+          onViewMode={setViewMode}
+          onReload={loadSnapshot}
+          loading={loadingData}
+          onExportCsv={handleExportCsv}
+          onImportCsv={handleImportCsv}
+          onPrint={() => { setViewMode('table'); setTimeout(() => window.print(), 300); }}
+          onSettings={() => openSettings()}
+          onClose={() => setOpenSheet(null)}
+        />
+      )}
+      {openSheet === 'search' && <SearchSheet onAdd={addStock} search={search} onClose={() => setOpenSheet(null)} />}
+
+      {detailStock && (
+        <StockSheet
+          symbol={detailSymbol}
+          client={client}
+          stock={detailStock}
+          stats={statsData[detailSymbol]?.performance || {}}
+          dailyRows={dailyPrices[detailSymbol]?.rows || []}
+          onEnsureHistory={ensureHistory}
+          qty={shareQuantities[detailSymbol]}
+          buyPrice={purchasePrices[detailSymbol]}
+          buyDate={purchaseDates[detailSymbol]}
+          onUpdateQty={updateShareQuantity}
+          onUpdateBuyPrice={updatePurchasePrice}
+          onUpdateBuyDate={updatePurchaseDate}
+          alertCount={Object.values(rulesBySymbol[detailSymbol] || {}).filter(r => r.enabled).length}
+          onAlerts={setAlertSymbol}
+          canMove={accounts.length > 1}
+          onMoveCopy={setMoveCopySymbol}
+          onRemove={removeAndClose}
+          onClose={() => setDetailSymbol(null)}
+        />
+      )}
+
+      {moveCopySymbol && accounts.length > 1 && (
+        <MoveSheet
+          symbol={moveCopySymbol}
+          accounts={accounts}
+          activeId={activeAccountId}
+          onMove={(sym, target) => { handleMoveStock(sym, target); setDetailSymbol(null); }}
+          onCopy={handleCopyStock}
+          onClose={() => setMoveCopySymbol(null)}
+        />
+      )}
+
+      {alertSymbol && (
+        <AlertDialog
+          symbol={alertSymbol}
+          name={stockData[alertSymbol]?.name}
+          price={stockData[alertSymbol]?.price}
+          purchasePrice={purchasePrices[alertSymbol]}
+          rules={rulesBySymbol[alertSymbol] || {}}
+          pushState={pushState}
+          onSave={handleSaveRules}
+          onClose={() => setAlertSymbol(null)}
+          onOpenSettings={() => { setAlertSymbol(null); openSettings('push'); }}
+        />
       )}
 
       {showSettings && (
         <Settings
+          colorScheme={colorScheme}
+          onColorScheme={setColorScheme}
           colors={colorSettings}
           onChange={setColorSettings}
           onClose={() => setShowSettings(false)}
@@ -935,42 +878,6 @@ const App = ({ client, session }) => {
           onRefreshIntervalChange={setRefreshInterval}
         />
       )}
-
-      {alertSymbol && (
-        <AlertDialog
-          symbol={alertSymbol}
-          name={stockData[alertSymbol]?.name}
-          price={stockData[alertSymbol]?.price}
-          purchasePrice={purchasePrices[alertSymbol]}
-          rules={rulesBySymbol[alertSymbol] || {}}
-          pushState={pushState}
-          onSave={handleSaveRules}
-          onClose={() => setAlertSymbol(null)}
-          onOpenSettings={() => { setAlertSymbol(null); openSettings('push'); }}
-        />
-      )}
-
-      {detailSymbol && (
-        <StockDetail
-          symbol={detailSymbol}
-          client={client}
-          stockData={stockData}
-          dailyRows={dailyPrices[detailSymbol]?.rows || []}
-          statsData={statsData}
-          onEnsureHistory={ensureHistory}
-          purchasePrice={purchasePrices[detailSymbol] || 0}
-          shareQuantity={shareQuantities[detailSymbol] || 0}
-          purchaseDate={purchaseDates[detailSymbol] || ''}
-          onUpdatePurchasePrice={updatePurchasePrice}
-          onUpdateShareQuantity={updateShareQuantity}
-          onUpdatePurchaseDate={updatePurchaseDate}
-          onClose={() => setDetailSymbol(null)}
-        />
-      )}
-
-      <footer className="mt-8 text-[0.7rem] text-muted text-center no-print">
-        Kurse von Yahoo Finance, ca. 15 min verzögert, Aktualisierung alle 30 min (Mo–Fr). Depotdaten bleiben auf diesem Gerät.
-      </footer>
     </div>
   );
 };

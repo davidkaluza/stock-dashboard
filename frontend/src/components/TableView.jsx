@@ -251,17 +251,17 @@ const TableView = ({
     <div className="overflow-x-auto">
       <table className="w-full text-table-mono border-collapse">
         <thead>
-          <tr className="border-b border-accent text-muted uppercase">
+          <tr className="border-b border-line text-muted uppercase">
             {COLUMNS.map((column) => {
               const isActive = sortKey === column.key;
               const ariaSort = isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
 
               return (
-                <th key={column.key} className={`${column.align} p-2 font-normal`} aria-sort={ariaSort}>
+                <th key={column.key} className={`${column.align} p-2 font-normal whitespace-nowrap ${column.key === 'ticker' ? 'sticky left-0 z-10 bg-surface' : ''}`} aria-sort={ariaSort}>
                   <button
                     type="button"
                     onClick={() => handleSort(column.key)}
-                    className="inline-flex items-center gap-1 hover:text-white transition-colors select-none uppercase"
+                    className="inline-flex items-center gap-1 hover:text-fg transition-colors select-none uppercase"
                   >
                     {column.label}
                     <SortIcon active={isActive} direction={sortDir} />
@@ -275,7 +275,7 @@ const TableView = ({
         <tbody>
           {sortedStocks.length === 0 && (
             <tr>
-              <td colSpan={COLUMNS.length + 1} className="text-center p-10 text-muted border-b border-accent">
+              <td colSpan={COLUMNS.length + 1} className="text-center p-10 text-muted border-b border-line">
                 WATCHLIST EMPTY. ADD SYMBOLS ABOVE.
               </td>
             </tr>
@@ -300,8 +300,10 @@ const TableView = ({
             const displayRendite = cagr !== null ? formatSignedNumber(cagr, 2, '% p.a.') : hasPurchase ? '< 30 Tage' : '-';
 
             return (
-              <tr key={symbol} className="border-b border-accent hover:bg-surface/50 transition-colors">
-                <td className="p-2 font-bold">{symbol}</td>
+              <tr key={symbol} className="border-b border-line">
+                <td className="p-2 font-bold whitespace-nowrap sticky left-0 z-10 bg-surface">
+                  <button type="button" onClick={() => onShowDetail?.(symbol)} className="font-bold">{symbol}</button>
+                </td>
                 <td className="p-2 text-muted max-w-[200px] truncate">
                   <button
                     type="button"
@@ -312,7 +314,7 @@ const TableView = ({
                     {data.name || 'N/A'}
                   </button>
                 </td>
-                <td className="p-2 text-right font-bold">{formatNumber(price)}</td>
+                <td className="p-2 text-right font-bold">{data.price === undefined ? '—' : formatNumber(price)}</td>
                 <td className={`p-2 text-right ${valueClass(change)}`}>
                   {formatSignedNumber(change)} ({formatSignedNumber(changePct, 2, '%')})
                 </td>
@@ -333,7 +335,7 @@ const TableView = ({
                     onChange={(event) => onUpdateShareQuantity?.(symbol, event.target.value)}
                     placeholder="0"
                     aria-label={`Anzahl für ${symbol}`}
-                    className="bg-background border border-accent text-xs-mono p-1 w-16 text-center focus:outline-none focus:border-muted transition-colors"
+                    className="bg-surface2 rounded-md text-sm px-1.5 py-1 w-16 text-center focus:outline-none focus:border-muted transition-colors"
                   />
                 </td>
                 <td className="p-2 text-center">
@@ -345,7 +347,7 @@ const TableView = ({
                     onChange={(event) => onUpdatePurchasePrice?.(symbol, event.target.value)}
                     placeholder="0.00"
                     aria-label={`Kaufkurs für ${symbol}`}
-                    className="bg-background border border-accent text-xs-mono p-1 w-20 text-center focus:outline-none focus:border-muted transition-colors"
+                    className="bg-surface2 rounded-md text-sm px-1.5 py-1 w-20 text-center focus:outline-none focus:border-muted transition-colors"
                   />
                 </td>
                 <td className="p-2 text-center">
@@ -354,7 +356,7 @@ const TableView = ({
                     value={buyDate}
                     onChange={(event) => onUpdatePurchaseDate?.(symbol, event.target.value)}
                     aria-label={`Kaufdatum für ${symbol}`}
-                    className="bg-background border border-accent text-xs-mono p-1 w-32 text-center focus:outline-none focus:border-muted transition-colors"
+                    className="bg-surface2 rounded-md text-sm px-1.5 py-1 w-32 text-center focus:outline-none focus:border-muted transition-colors"
                   />
                 </td>
                 <td className={`p-2 text-right ${valueClass(currentValue)}`}>{formatNumber(currentValue)}</td>
@@ -369,7 +371,7 @@ const TableView = ({
                       type="button"
                       onClick={() => onAlerts(symbol)}
                       aria-label={`${symbol} Benachrichtigungen`}
-                      className={`${alertSymbols?.has(symbol) ? 'text-accent' : 'text-muted'} hover:text-white transition-colors mr-1 no-print`}
+                      className={`${alertSymbols?.has(symbol) ? 'text-accent' : 'text-muted'} hover:text-fg transition-colors mr-1 no-print`}
                     >
                       <Bell size={12} aria-hidden="true" fill={alertSymbols?.has(symbol) ? 'currentColor' : 'none'} />
                     </button>
