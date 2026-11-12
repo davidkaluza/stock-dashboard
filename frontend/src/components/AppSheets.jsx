@@ -106,7 +106,7 @@ export const MenuSheet = ({ sortKey, sortDir, onSort, viewMode, onViewMode, onRe
 
 export const SearchSheet = ({ onAdd, search, onClose }) => (
   <Sheet title="Aktie hinzufügen" subtitle="Name, WKN, ISIN oder Ticker" onClose={onClose}>
-    <div className="min-h-[50vh] md:min-h-[320px]">
+    <div className="min-h-[220px]">
       <AddStock onAdd={(s) => { onAdd(s); onClose(); }} search={search} autoFocus />
     </div>
   </Sheet>

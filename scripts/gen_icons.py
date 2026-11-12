@@ -3,7 +3,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-BG = "#33312B"
+BG_TOP = "#262B33"      # Verlauf oben (etwas heller) …
+BG = "#14171C"          # … nach unten zum App-Grundton im Dunkelmodus
 ACCENT = "#C09537"
 POS = "#22c55e"
 
@@ -15,7 +16,7 @@ def _mix(c1: str, c2: str, t: float) -> str:
     return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
 
 
-BAR = _mix(BG, ACCENT, 0.35)
+BAR = _mix(_mix(BG, BG_TOP, 0.4), ACCENT, 0.35)
 OUT = Path(__file__).resolve().parent.parent / "frontend" / "public"
 
 # Kurslinie im Einheitsquadrat (0..1), y nach unten
@@ -27,10 +28,18 @@ def draw(size: int, safe: float = 1.0, rounded: bool = True) -> Image.Image:
     """safe < 1 verkleinert das Motiv (für maskable Icons mit Sicherheitszone)."""
     scale = 4  # supersampling für glatte Kanten
     s = size * scale
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+    # Hintergrund: senkrechter Verlauf, dann auf die (abgerundete) Form zuschneiden
+    gradient = Image.new("RGBA", (1, s))
+    for y in range(s):
+        c = _mix(BG_TOP, BG, y / (s - 1))
+        gradient.putpixel((0, y), tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) + (255,))
+    gradient = gradient.resize((s, s))
+    mask = Image.new("L", (s, s), 0)
     radius = int(s * 0.22) if rounded else 0
-    d.rounded_rectangle([0, 0, s - 1, s - 1], radius=radius, fill=BG)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, s - 1, s - 1], radius=radius, fill=255)
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    img.paste(gradient, (0, 0), mask)
+    d = ImageDraw.Draw(img)
 
     def p(x, y):
         off = (1 - safe) / 2
@@ -58,7 +67,8 @@ def svg() -> str:
     ex, ey = LINE[-1]
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-        f'<rect width="64" height="64" rx="14" fill="{BG}"/>{bars}'
+        f'<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{BG_TOP}"/><stop offset="1" stop-color="{BG}"/></linearGradient></defs>'
+        f'<rect width="64" height="64" rx="14" fill="url(#bg)"/>{bars}'
         f'<polyline points="{pts}" fill="none" stroke="{ACCENT}" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>'
         f'<circle cx="{ex * 64:.1f}" cy="{ey * 64:.1f}" r="3.5" fill="{POS}"/></svg>\n'
     )

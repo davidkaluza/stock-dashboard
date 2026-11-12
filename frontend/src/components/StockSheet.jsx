@@ -25,7 +25,7 @@ const NumberField = ({ label, value, onChange, type = 'number', step = 'any' }) 
       min={type === 'number' ? '0' : undefined}
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value)}
-      className="w-40 text-right bg-transparent text-accent focus:outline-none py-2"
+      className={`w-40 text-right bg-transparent text-accent focus:outline-none py-2 ${type === 'date' ? 'date-right' : ''}`}
     />
   </label>
 );

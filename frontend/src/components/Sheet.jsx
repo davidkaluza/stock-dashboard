@@ -4,11 +4,36 @@ import { X } from 'lucide-react';
 const CLOSE_DISTANCE = 90; // px nach unten ziehen zum Schließen
 
 /**
+ * Sichtbarer Bereich (ohne Bildschirmtastatur). iOS schiebt fest positionierte Elemente beim Öffnen der
+ * Tastatur sonst nach oben – das Blatt rutschte dann bis unter die Statusleiste.
+ */
+function useVisibleViewport() {
+  const read = () => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    return vv ? { top: vv.offsetTop, height: vv.height } : null;
+  };
+  const [box, setBox] = useState(read);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    const update = () => setBox({ top: vv.offsetTop, height: vv.height });
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+  return box;
+}
+
+/**
  * Blatt von unten (iPhone) bzw. mittiger Dialog (ab 768 px).
  * Schließen: ✕, Tipp auf den Hintergrund, Escape oder am Griff/Kopf nach unten ziehen.
  */
 const Sheet = ({ title, subtitle, onClose, children, footer, wide = false, headerRight }) => {
   const [dragY, setDragY] = useState(0);
+  const viewport = useVisibleViewport();
   const startY = useRef(null);
 
   useEffect(() => {
@@ -36,7 +61,11 @@ const Sheet = ({ title, subtitle, onClose, children, footer, wide = false, heade
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" role="presentation">
+    <div
+      className="fixed inset-x-0 top-0 h-full z-50 flex items-end md:items-center justify-center"
+      style={viewport ? { top: viewport.top, height: viewport.height } : undefined}
+      role="presentation"
+    >
       <div className="absolute inset-0 bg-black/40 backdrop-enter" onClick={onClose} />
       <div
         role="dialog"

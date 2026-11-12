@@ -90,9 +90,14 @@ input, select, textarea { font-size: max(16px, 1em); }
 .backdrop-enter { animation: fade-in 0.2s ease-out; }
 @media (min-width: 768px) { .sheet-enter { animation: fade-in 0.15s ease-out; } }
 
-/* Blatt-Höhe: oben Abstand zur Statusleiste lassen (installierte App reicht bis unter die Statusleiste) */
-.sheet-max { max-height: calc(100dvh - max(env(safe-area-inset-top), 0.75rem) - 0.75rem); }
-@media (min-width: 768px) { .sheet-max { max-height: 85vh; } }
+/* Blatt-Höhe relativ zum sichtbaren Bereich (Sheet.jsx setzt ihn per visualViewport, auch bei offener Tastatur);
+   oben Abstand zur Statusleiste lassen (installierte App reicht bis unter die Statusleiste) */
+.sheet-max { max-height: calc(100% - max(env(safe-area-inset-top), 0.75rem) - 0.75rem); }
+@media (min-width: 768px) { .sheet-max { max-height: 85%; } }
+
+/* Datumsfeld rechtsbündig – Safari ignoriert text-align am Feld selbst */
+.date-right { -webkit-appearance: none; appearance: none; text-align: right; }
+.date-right::-webkit-date-and-time-value { text-align: right; }
 @media (prefers-reduced-motion: reduce) { .sheet-enter, .backdrop-enter { animation: none; } }
 
 /* iPhone: Inhalt nicht unter Notch / Home-Indikator (installierte App, viewport-fit=cover) */
