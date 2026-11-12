@@ -189,30 +189,37 @@ Danach muss die App neu gebaut werden (**Actions → PWA veröffentlichen → Ru
 
 Ein neues Schlüsselpaar macht alle bestehenden Abos ungültig. Die App meldet sich beim nächsten Öffnen selbst neu an, sofern Benachrichtigungen erlaubt sind.
 
-### E2. Neuer Ticker → sofort laden (optional)
+### E2. Zuverlässiger Abruf, „Jetzt abrufen“-Knopf, neue Ticker sofort laden
 
-Ohne diesen Schritt erscheinen neue Ticker spätestens nach dem nächsten 30-Minuten-Lauf. Mit ihm startet Supabase die Action sofort.
+GitHub führt zeitgesteuerte Workflows nur nach Möglichkeit aus und lässt bei Last viele Läufe aus (beobachtet: 2 statt ~20 pro Tag). Deshalb startet **Supabase** die Action:
+- Mo–Fr alle 30 Minuten und nachts per `pg_cron`,
+- sofort, wenn ein neuer Ticker hinzukommt,
+- auf Knopfdruck in der App: **⋯ → Jetzt von Yahoo abrufen** (höchstens alle 5 Minuten).
 
-1. Supabase → **SQL Editor** → **+ New query** → Inhalt von [`supabase/migrations/0002_dispatch_new_ticker.sql`](../supabase/migrations/0002_dispatch_new_ticker.sql) einfügen → **Run**.
-2. GitHub → Profilbild → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**:
+Der GitHub-Zeitplan bleibt als Reserve (stündlich).
+
+1. GitHub → Profilbild → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**:
    - **Token name:** `supabase-dispatch`
    - **Expiration:** z. B. 1 Jahr (danach erneuern, siehe unten)
    - **Repository access:** *Only select repositories* → `stock-dashboard`
    - **Permissions → Repository permissions → Actions:** *Read and write*. Sonst nichts.
    - **Generate token** und kopieren.
-3. Supabase → **SQL Editor** → mit deinem Token und Repo:
+2. Supabase → **SQL Editor** → **+ New query** → mit deinem Token:
 
    ```sql
    select vault.create_secret('github_pat_…DEIN_TOKEN…', 'github_dispatch_token');
    select vault.create_secret('davidkaluza/stock-dashboard', 'github_repo');
    ```
+3. Supabase → **SQL Editor** → **+ New query** → Inhalt von [`supabase/migrations/0003_schedule_and_refresh.sql`](../supabase/migrations/0003_schedule_and_refresh.sql) einfügen → **Run**. (`0002` ist darin enthalten und muss nicht extra ausgeführt werden.)
 
 Der Token kann nur Workflows dieses Repos starten, keinen Code ändern.
+
+**Prüfen:** In der App **⋯ → Jetzt von Yahoo abrufen** → Meldung „Abruf gestartet“; unter GitHub **Actions** erscheint nach wenigen Sekunden ein Lauf „Kurse abrufen“. Den Zeitplan siehst du in Supabase unter **Integrations → Cron** (bzw. **Database → Cron Jobs**): `stock-dashboard-quotes` und `stock-dashboard-nightly`.
 
 **Token erneuern:** neuen Token erzeugen, dann
 `select vault.update_secret((select id from vault.secrets where name = 'github_dispatch_token'), 'github_pat_…NEU…');`
 
-**Prüfen:** In der App einen neuen Ticker hinzufügen → unter GitHub **Actions** startet nach wenigen Sekunden ein Lauf „Kurse abrufen“.
+**Kurse von Hand abrufen ohne App:** GitHub → **Actions → Kurse abrufen → Run workflow** → Modus `quotes` (auch in der GitHub-App auf dem iPhone).
 
 ### E3. Auf dem Gerät aktivieren
 

@@ -12,6 +12,7 @@ import { BADGE_LABELS, fmtNum, fmtPct, fmtSigned, nextBadgeMode, signOf } from '
 import { applyFont, applyTheme, loadThemeSettings } from './lib/theme';
 import { collectSymbols, normalizeSymbol, syncTickers } from './lib/tickers';
 import { createSearch } from './lib/search';
+import { requestRefresh } from './lib/refresh';
 import { RULE_TYPES, groupRules, loadAlertLog, loadRules, rulesForBackup, saveRules } from './lib/alerts';
 import { disablePush, enablePush, pushStatus, showTestNotification, syncPushSubscription } from './lib/push';
 import { buildBackup, buildCsv, downloadFile, emptyAccount, mergeCsvIntoAccounts, parseBackup, parseCsv } from './lib/backup';
@@ -70,6 +71,7 @@ const App = ({ client, session }) => {
   const [statsData, setStatsData] = useState(() => loadJson('statsData', {}));
   const [dailyPrices, setDailyPrices] = useState(() => loadJson('dailyPrices', {})); // {symbol: {since, loadedOn, rows}}
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null); // Hinweis (nicht Fehler), z. B. „Abruf gestartet“
   const [loadingData, setLoadingData] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
   const [viewMode, setViewMode] = useState(() => (localStorage.getItem('viewMode') === 'table' ? 'table' : 'list'));
@@ -605,6 +607,22 @@ const App = ({ client, session }) => {
     safeSetItem('backupReminderSnoozedUntil', String(until));
   };
 
+  const handleFetchNow = async () => {
+    setNotice({ ok: true, text: 'Starte Abruf…' });
+    try {
+      const result = await requestRefresh(client);
+      setNotice(result);
+      if (result.ok) {
+        // Die Action braucht ca. 1–2 Minuten; danach automatisch nachladen
+        setTimeout(loadSnapshot, 75 * 1000);
+        setTimeout(loadSnapshot, 150 * 1000);
+        setTimeout(() => setNotice(null), 160 * 1000);
+      }
+    } catch (e) {
+      setNotice({ ok: false, text: `Abruf konnte nicht gestartet werden: ${e.message || e}` });
+    }
+  };
+
   const handleSignOut = async () => {
     await client.auth.signOut();
   };
@@ -673,6 +691,12 @@ const App = ({ client, session }) => {
       </div>
 
       {error && <p className="text-neg text-sm mb-3 px-1">{error}</p>}
+      {notice && (
+        <div className={`bg-surface rounded-xl px-3 py-2 mb-3 text-sm flex items-center gap-2 no-print ${notice.ok ? 'text-fg' : 'text-neg'}`}>
+          <span className="flex-1">{notice.text}</span>
+          <button onClick={() => setNotice(null)} className="text-muted h-8 px-2" aria-label="Hinweis schließen">OK</button>
+        </div>
+      )}
 
       {showBackupReminder && (
         <div className="bg-surface rounded-xl p-3 mb-4 text-sm flex items-center gap-3 no-print">
@@ -792,6 +816,7 @@ const App = ({ client, session }) => {
           viewMode={viewMode}
           onViewMode={setViewMode}
           onReload={loadSnapshot}
+          onFetchNow={handleFetchNow}
           loading={loadingData}
           onExportCsv={handleExportCsv}
           onImportCsv={handleImportCsv}

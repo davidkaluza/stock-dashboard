@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Plus, Pencil, Trash2, ArrowUp, ArrowDown, List, Table, RefreshCw, Download, Upload, Printer, Settings as SettingsIcon, ArrowLeftRight, Copy } from 'lucide-react';
+import { Check, Plus, Pencil, Trash2, ArrowUp, ArrowDown, List, Table, RefreshCw, DownloadCloud, Download, Upload, Printer, Settings as SettingsIcon, ArrowLeftRight, Copy } from 'lucide-react';
 import Sheet, { Group } from './Sheet';
 import AddStock from './AddStock';
 
@@ -61,7 +61,7 @@ const SORTS = [
   { key: 'days', label: 'Haltedauer' },
 ];
 
-export const MenuSheet = ({ sortKey, sortDir, onSort, viewMode, onViewMode, onReload, loading, onExportCsv, onImportCsv, onPrint, onSettings, onClose }) => (
+export const MenuSheet = ({ sortKey, sortDir, onSort, viewMode, onViewMode, onReload, onFetchNow, loading, onExportCsv, onImportCsv, onPrint, onSettings, onClose }) => (
   <Sheet title="Menü" onClose={onClose}>
     <Group title="Sortieren">
       {SORTS.map((s) => (
@@ -81,7 +81,12 @@ export const MenuSheet = ({ sortKey, sortDir, onSort, viewMode, onViewMode, onRe
     </Group>
     <Group>
       <button onClick={() => { onReload(); onClose(); }} disabled={loading} className={`${itemClass} disabled:opacity-40`}>
-        <RefreshCw size={18} className="text-accent" /> Kurse neu laden
+        <RefreshCw size={18} className="text-accent" />
+        <span><span className="block">Kurse neu laden</span><span className="block text-sm text-muted">aus der Datenbank</span></span>
+      </button>
+      <button onClick={() => { onFetchNow(); onClose(); }} className={itemClass}>
+        <DownloadCloud size={18} className="text-accent" />
+        <span><span className="block">Jetzt von Yahoo abrufen</span><span className="block text-sm text-muted">startet die Aktualisierung (max. alle 5 min)</span></span>
       </button>
       <button onClick={() => { onExportCsv(); onClose(); }} className={itemClass}>
         <Download size={18} className="text-accent" /> CSV exportieren

@@ -33,6 +33,12 @@ describe('CSV', () => {
     expect(parseCsv('DEPOT;TICKER;NAME;ANZAHL;KAUFKURS;DATUM\nX;SAP.DE;SAP;2;180,25;')['X'].purchasePrices['SAP.DE']).toBe(180.25);
   });
 
+  it('erkennt Kopfzeilen mit SYMBOL statt TICKER', () => {
+    const entries = parseCsv('DEPOT;SYMBOL;NAME;ANZAHL;KAUFKURS;DATUM\nDepot 1;SAP.DE;SAP;10;180;2024-05-01');
+    expect(entries['Depot 1'].watchlist).toEqual(['SAP.DE']);
+    expect(Object.values(entries).flatMap((e) => e.watchlist)).not.toContain('SYMBOL');
+  });
+
   it('führt gleichnamige Depots zusammen', () => {
     const merged = mergeCsvIntoAccounts(accounts, parseCsv('DEPOT;TICKER;NAME;ANZAHL;KAUFKURS;DATUM\nDepot 1;MSFT;;4;310;'));
     expect(merged).toHaveLength(2);

@@ -35,7 +35,10 @@ export function parseCsv(text, fallbackDepotName = 'Depot 1') {
   if (lines.length < 2) return {};
   const header = lines[0].toUpperCase();
   const hasDepot = header.startsWith('DEPOT');
-  const dataLines = header.includes('TICKER') ? lines.slice(1) : lines;
+  // Kopfzeile erkennen – auch ältere/fremde Dateien mit SYMBOL statt TICKER, sonst würde sie als Aktie importiert
+  const headerCells = header.split(/[;,]/).map((c) => c.trim().replace(/^"|"$/g, ''));
+  const isHeader = headerCells.some((c) => ['TICKER', 'SYMBOL', 'ANZAHL', 'KAUFKURS', 'MENGE', 'STÜCK'].includes(c));
+  const dataLines = isHeader ? lines.slice(1) : lines;
 
   const depotEntries = {};
   for (const line of dataLines) {

@@ -2,8 +2,10 @@ name: Kurse abrufen
 
 on:
   schedule:
-    - cron: "*/30 6-21 * * 1-5"   # alle 30 min, Mo–Fr, ca. 7–23 Uhr deutscher Zeit (UTC)
-    - cron: "0 2 * * *"           # nachts: Tageskurse, Fundamentaldaten, Aufräumen
+    # Hauptzeitplan läuft über Supabase pg_cron (Migration 0003), weil GitHub viele geplante Läufe auslässt.
+    # Diese Zeiten sind nur Reserve – bewusst nicht zur vollen/halben Stunde (dann ist GitHub am vollsten).
+    - cron: "17 6-21 * * 1-5"     # stündlich, Mo–Fr, ca. 7–23 Uhr deutscher Zeit (UTC)
+    - cron: "43 2 * * *"          # nachts: Tageskurse, Fundamentaldaten, Aufräumen
   workflow_dispatch:               # manuell oder von Supabase bei neuem Ticker (Modus new, Migration 0002)
     inputs:
       mode:
@@ -48,7 +50,7 @@ jobs:
         run: |
           case "$EVENT" in
             schedule)
-              if [ "$SCHEDULE" = "0 2 * * *" ]; then echo "args=nightly" >> "$GITHUB_OUTPUT"; else echo "args=quotes" >> "$GITHUB_OUTPUT"; fi ;;
+              if [ "$SCHEDULE" = "43 2 * * *" ]; then echo "args=nightly" >> "$GITHUB_OUTPUT"; else echo "args=quotes" >> "$GITHUB_OUTPUT"; fi ;;
             workflow_dispatch)
               SYMS=$(printf '%s' "$INPUT_SYMBOLS" | tr -cd 'A-Za-z0-9.^=_ -')
               echo "args=$INPUT_MODE $SYMS" >> "$GITHUB_OUTPUT" ;;
