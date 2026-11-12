@@ -42,7 +42,7 @@ const Sheet = ({ title, subtitle, onClose, children, footer, wide = false, heade
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`sheet-enter relative w-full ${wide ? 'md:max-w-[720px]' : 'md:max-w-[520px]'} max-h-[92vh] md:max-h-[85vh] bg-sheet rounded-t-2xl md:rounded-2xl shadow-2xl flex flex-col`}
+        className={`sheet-enter relative w-full ${wide ? 'md:max-w-[720px]' : 'md:max-w-[520px]'} sheet-max bg-sheet rounded-t-2xl md:rounded-2xl shadow-2xl flex flex-col`}
         style={dragY ? { transform: `translateY(${dragY}px)`, transition: 'none' } : undefined}
       >
         <div {...dragHandlers} className="shrink-0 touch-none select-none">

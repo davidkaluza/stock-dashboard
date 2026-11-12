@@ -67,7 +67,7 @@ function setThemeColorMeta(scheme, colors) {
   };
   if (scheme === 'system') {
     add('#F2F2F7', '(prefers-color-scheme: light)');
-    add('#000000', '(prefers-color-scheme: dark)');
+    add('#14171C', '(prefers-color-scheme: dark)');
   } else {
     add(scheme === 'custom' ? colors.background : OLD_DEFAULT_COLORS.background);
   }

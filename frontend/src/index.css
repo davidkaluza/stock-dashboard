@@ -30,15 +30,16 @@
 @media (prefers-color-scheme: dark) {
   :root,
   :root[data-theme="system"] {
-    --bg-background: #000000;
-    --bg-surface: #1C1C1E;
-    --bg-surface2: #2C2C2E;
-    --bg-sheet: #1C1C1E;   /* im Dunkelmodus hebt sich das Blatt heller vom Schwarz ab */
-    --bg-group: #2C2C2E;
-    --bg-control: #3A3A3C;
+    /* Dunkel: Grundton #14171c (Wunsch), Flächen im selben bläulichen Ton abgestuft */
+    --bg-background: #14171C;
+    --bg-surface: #1E222A;
+    --bg-surface2: #282D36;
+    --bg-sheet: #1E222A;   /* Blatt hebt sich heller vom Hintergrund ab */
+    --bg-group: #282D36;
+    --bg-control: #353B46;
     --clr-fg: #FFFFFF;
-    --clr-muted: #8E8E93;
-    --clr-line: #38383A;
+    --clr-muted: #8D94A0;
+    --clr-line: #343A44;
     --clr-accent: #0A84FF;
     --clr-pos: #30D158;
     --clr-neg: #FF453A;
@@ -88,6 +89,10 @@ input, select, textarea { font-size: max(16px, 1em); }
 .sheet-enter { animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .backdrop-enter { animation: fade-in 0.2s ease-out; }
 @media (min-width: 768px) { .sheet-enter { animation: fade-in 0.15s ease-out; } }
+
+/* Blatt-Höhe: oben Abstand zur Statusleiste lassen (installierte App reicht bis unter die Statusleiste) */
+.sheet-max { max-height: calc(100dvh - max(env(safe-area-inset-top), 0.75rem) - 0.75rem); }
+@media (min-width: 768px) { .sheet-max { max-height: 85vh; } }
 @media (prefers-reduced-motion: reduce) { .sheet-enter, .backdrop-enter { animation: none; } }
 
 /* iPhone: Inhalt nicht unter Notch / Home-Indikator (installierte App, viewport-fit=cover) */
